@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Document Processing Application Development Plan
 
-## Getting Started
+## Project Overview
 
-First, run the development server:
+This project aims to build a robust document processing application with the following core features:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **UI for Uploading Documents**: Support uploading both files and folders in PDF, DOC, PPT, MD, and XLS formats.
+- **Text Processing & Chunking**: Extract and process text from uploaded documents, then generate text chunks for further analysis.
+- **Embeddings & Vector Database**: Create embeddings for text chunks using a local instance of `snowflake-arctic-embed` and store them in a vector database.
+- **Semantic Search**: Provide a UI-based search function to find similarity matches in the vector database and display relevant text content based on scoring.
+- **Document Metadata**: Display an icon in the UI to show metadata for each document (e.g., file type, size, upload date).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Development Roadmap
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+1. **UI Development**
+    - Design and implement a modern, user-friendly interface for uploading files and folders.
+    - Support drag-and-drop and file picker for multiple formats (PDF, DOC, PPT, MD, XLS).
+    - Display upload progress and handle errors gracefully.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **Backend Processing**
+    - Implement file parsing and text extraction for all supported formats.
+    - Develop chunking logic to split extracted text into manageable segments.
 
-## Learn More
+3. **Embeddings & Vector Database Integration**
+    - Integrate with local `snowflake-arctic-embed` for generating embeddings.
+    - Store embeddings and associated metadata in a vector database (e.g., Pinecone, Qdrant, or similar).
 
-To learn more about Next.js, take a look at the following resources:
+4. **Search Functionality**
+    - Build a semantic search UI to query the vector database.
+    - Display search results with relevance scores and highlight matching text.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. **Metadata Display**
+    - Add icons or buttons in the UI to view document metadata.
+    - Show details such as file type, size, upload date, and processing status.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+6. **Testing & Optimization**
+    - Write unit and integration tests for all major components.
+    - Optimize performance for large files and batch uploads.
 
-## Deploy on Vercel
+## Future Enhancements
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Support for additional file formats.
+- User authentication and access control.
+- Advanced analytics and reporting on document content.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+This plan will guide the development process and ensure all key goals are met. Contributions and feedback are welcome!
