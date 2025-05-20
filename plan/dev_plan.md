@@ -1,9 +1,9 @@
 # Development Plan
 
 ## Project Foundation
-- [ ] **Framework**: Use Next.js 15 as the core framework for the application.
-- [ ] **Project Structure**:
-  - [ ] `api/` — for backend API routes and logic.
+- [X] **Framework**: Use Next.js 15 as the core framework for the application.
+- [X] **Project Structure**:
+  - [X] `api/` — for backend API routes and logic.
   - [ ] `components/` — for reusable React UI components.
   - [ ] `scripts/` — for command-line and utility scripts.
 - [ ] **Version Control**: Integrate the project with a Git repository for source control and collaboration.
