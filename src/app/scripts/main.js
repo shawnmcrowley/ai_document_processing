@@ -1,3 +1,12 @@
+/*
+Command Line Utility to Chat with a PDF File - Takes a single file input
+and uses Mozilla's PDF.js to extract text from the PDF, then uses OpenAI's
+GPT model to answer questions based on the extracted text.  
+This script is designed to be run from the command line and requires Node.js.
+It uses the ModelFusion library to handle vector indexing and
+retrieval of information from the PDF.
+*/
+
 const { Command } = require("commander");
 const dotenv = require("dotenv");
 const fs = require("fs/promises");
