@@ -1,7 +1,7 @@
-import { Command } from "commander";
-import dotenv from "dotenv";
-import fs from "fs/promises";
-import {
+const { Command } = require("commander");
+const dotenv = require("dotenv");
+const fs = require("fs/promises");
+const {
   MemoryVectorIndex,
   VectorIndexRetriever,
   generateText,
@@ -11,9 +11,9 @@ import {
   splitTextChunks,
   streamText,
   upsertIntoVectorIndex,
-} from "modelfusion";
-import * as readline from "node:readline/promises";
-import * as PdfJs from "pdfjs-dist/legacy/build/pdf";
+} = require("modelfusion");
+const readline = require("node:readline/promises");
+const PdfJs = require("pdfjs-dist/legacy/build/pdf.js");
 
 dotenv.config();
 

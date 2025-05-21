@@ -4,18 +4,18 @@
 - [X] **Framework**: Use Next.js 15 as the core framework for the application.
 - [X] **Project Structure**:
   - [X] `api/` — for backend API routes and logic.
-  - [ ] `components/` — for reusable React UI components.
-  - [ ] `scripts/` — for command-line and utility scripts.
-- [ ] **Version Control**: Integrate the project with a Git repository for source control and collaboration.
-- [ ] **Environment Configuration**:
-  - [ ] Add a `.env.local` file to manage environment variables securely.
-  - [ ] Add `OPENAPI_KEY` to `.env.local` for API authentication and integration.
+  - [X] `components/` — for reusable React UI components.
+  - [X] `scripts/` — for command-line and utility scripts.
+- [X] **Version Control**: Integrate the project with a Git repository for source control and collaboration.
+- [X] **Environment Configuration**:
+  - [X] Add a `.env.local` file to manage environment variables securely.
+  - [X] Add `OPENAPI_KEY` to `.env.local` for API authentication and integration.
 
 ## Development Workflow
 1. **Command-Line Scripts First**
-   - [ ] Develop and test command-line scripts in the `scripts/` folder.
-   - [ ] Use ModelFusion project dependencies for document processing, embeddings, and vector database integration.
-   - [ ] Test all scripts using Node.js at the command line before integrating with the UI or API.
+   - [X] Develop and test command-line scripts in the `scripts/` folder.
+   - [X] Use ModelFusion project dependencies for document processing, embeddings, and vector database integration.
+   - [X] Test all scripts using Node.js at the command line before integrating with the UI or API.
 
 2. **API Layer**
    - [ ] Build API endpoints in the `api/` folder to expose backend functionality to the frontend.
