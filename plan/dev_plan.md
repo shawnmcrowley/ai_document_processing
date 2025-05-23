@@ -10,6 +10,9 @@
 - [X] **Environment Configuration**:
   - [X] Add a `.env.local` file to manage environment variables securely.
   - [X] Add `OPENAPI_KEY` to `.env.local` for API authentication and integration.
+  - [X] Update `DOCKERCOMPOSE` with services for Postgres and PgAdmin 
+  - [X] Configure `OLLAMA` models in LLM, specifically llama3.2 and snowflake-arctic-embed2
+  - [X] Configure tables, vector extension and indexes in `Postgres` database and validate PgAdmin is working
 
 ## Development Workflow
 1. **Command-Line Scripts First**
@@ -18,7 +21,7 @@
    - [X] Test all scripts using Node.js at the command line before integrating with the UI or API.
 
 2. **API Layer**
-   - [ ] Build API endpoints in the `api/` folder to expose backend functionality to the frontend.
+   - [ ] Build API endpoints in the `api/v1` folder to expose backend functionality to the frontend.
    - [ ] Ensure endpoints are secure and leverage environment variables for sensitive data.
 
 3. **Component Development**
