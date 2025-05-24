@@ -44,5 +44,11 @@ This project aims to build a robust document processing application with the fol
 - Advanced analytics and reporting on document content.
 
 ---
+## Notes
 
-This plan will guide the development process and ensure all key goals are met. Contributions and feedback are welcome!
+    Modify pdf-parse/index.js:
+    Open the file node_modules/pdf-parse/index.js.
+    Change line 6 (or the line containing isDebugMode) from let isDebugMode = ! module.parent; to let isDebugMode = false;.
+
+    Clear cache (if needed):
+    If you're using a framework like Next.js, delete the cache folder .next/cache. 
