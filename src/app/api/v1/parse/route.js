@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
 import ollama from "ollama";
+import db from "@/utils/postgres";
 
 // Helper: Chunk text (simple split by N words)
 function chunkText(text, chunkSize = 256) {
@@ -49,6 +50,21 @@ export async function POST(req) {
             fileName,
         };
 
+        // Insert document into documents table
+        const docInsert = await db.query(
+            `INSERT INTO documents (filename, content, metadata, embedding) VALUES ($1, $2, $3, $4) RETURNING id`,
+            [fileName, allText, metadata, embeddings]
+        );
+        const documentId = docInsert.rows[0].id;
+
+        // Insert chunks into document_chunks table
+        for (let i = 0; i < chunks.length; i++) {
+            await db.query(
+                `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ($1, $2, $3, $4)`,
+                [documentId, i, chunks[i], embeddings]
+            );
+        }
+
         // Return chunks and embeddings
         return NextResponse.json({
             fileName,
@@ -58,6 +74,7 @@ export async function POST(req) {
             pageCount: data.numpages,
             info: data.info,
             metadata,
+            documentId,
         }, { status: 200 });
 
     } catch (err) {
