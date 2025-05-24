@@ -19,7 +19,7 @@
    - [X] Develop and test command-line scripts in the `scripts/` folder.
    - [X] Use ModelFusion project dependencies for document processing, embeddings, and vector database integration.
    - [X] Test all scripts using Node.js at the command line before integrating with the UI or API.
-   - [] Modify scripts using Node.js at the command line to use pdf-parse instead of pdf-dist, dist is better for PDF Display, parse is better to extracting text on the server
+   - [X] Modify scripts using Node.js at the command line to use pdf-parse instead of pdf-dist, dist is better for PDF Display, parse is better to extracting text on the server
 
 2. **API Layer**
    - [ ] Build API endpoints in the `api/v1` folder to expose backend functionality to the frontend.
