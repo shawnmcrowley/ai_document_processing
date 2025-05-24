@@ -16,9 +16,10 @@ function chunkText(text, chunkSize = 256) {
 // Helper: Call local Ollama embedding model using the ollama npm package
 async function getEmbeddingsOllama(texts) {
     // snowflake-arctic-embed-2 must be running in Ollama
+    // Ollama expects a single string for 'prompt', not an array
     const result = await ollama.embeddings({
-        model: "snowflake-arctic-embed:2",
-        prompt: texts,
+        model: "snowflake-arctic-embed2",
+        prompt: texts.join("\n\n"), // join chunks into a single string
     });
     return result.embedding;
 }
@@ -38,6 +39,9 @@ export async function POST(req) {
         const allText = data.text;
         const chunks = chunkText(allText, 256);
 
+        // Get embeddings using Ollama
+        const embeddings = await getEmbeddingsOllama(chunks);
+
         // Add file name to metadata
         const fileName = file.name || "uploaded.pdf";
         const metadata = {
@@ -50,7 +54,7 @@ export async function POST(req) {
             fileName,
             allText,
             chunks,
-            //embeddings,
+            embeddings,
             pageCount: data.numpages,
             info: data.info,
             metadata,
