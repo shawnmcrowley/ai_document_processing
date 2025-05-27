@@ -2,7 +2,16 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+const pool = new Pool({
+  user: 'postgres',
+  password: 'postgres',
+  host: 'localhost',
+  port: 5432,
+  database: 'vectordb',
+})
+
 // Use environment variables from .env.local
+/*
 const pool = new Pool({
   host: process.env.POSTGRES_HOST,
   user: process.env.POSTGRES_USER,
@@ -12,6 +21,7 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
 });
 
+*/
 export default {
   query: (text, params) => pool.query(text, params),
   getClient: () => pool.connect(),
