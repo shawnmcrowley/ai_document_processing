@@ -22,12 +22,12 @@
    - [X] Modify scripts using Node.js at the command line to use pdf-parse instead of pdf-dist, dist is better for PDF Display, parse is better to extracting text on the server
 
 2. **API Layer**
-   - [ ] Build API endpoints in the `api/v1` folder to expose backend functionality to the frontend.
+   - [X] Build API endpoints in the `api/v1` folder to expose backend functionality to the frontend.
    - [ ] Ensure endpoints are secure and leverage environment variables for sensitive data.
 
 3. **Component Development**
-   - [ ] Create modular, reusable UI components in the `components/` folder.
-   - [ ] Focus on file/folder upload, search, and metadata display components.
+   - [X] Create modular, reusable UI components in the `components/` folder.
+   - [X] Focus on file/folder upload, search, and metadata display components.
 
 4. **User Interface & Integration**
    - [ ] Integrate command-line script logic into the Next.js API and UI.
