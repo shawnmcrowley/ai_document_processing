@@ -2,76 +2,43 @@ import { NextResponse } from "next/server";
 import db from "@/utils/postgres";
 import ollama from "ollama";
 
-// Helper: Get embedding for a query using Claude Sonnet (Anthropic)
-async function getQueryEmbedding(query, model = "claude-sonnet") {
-  if (model === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("Missing OPENAI_API_KEY in environment");
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "text-embedding-ada-002",
-        input: query,
-      }),
-    });
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || "OpenAI embedding error");
-    }
-    const data = await response.json();
-    return data.data[0].embedding;
-  } else {
-    const result = await ollama.embeddings({
-      model,
-      prompt: query,
-    });
-    return result.embedding;
-  }
+// Helper: Get embedding for a query using snowflake-arctic-embed2
+async function getQueryEmbedding(query) {
+  const result = await ollama.embeddings({
+    model: "snowflake-arctic-embed2",
+    prompt: query,
+  });
+  return result.embedding;
 }
 
 // Helper: Calculate cosine similarity in SQL
 const SIMILARITY_SQL = `
   SELECT c.id, c.content, c.embedding, c.chunk_index, d.filename, d.metadata,
-         (c.embedding <#> $2::vector) AS distance
+         (c.embedding <#> $1::vector) AS distance
   FROM document_chunks c
   JOIN documents d ON c.document_id = d.id
   ORDER BY distance ASC
   LIMIT 10
 `;
 
-// Helper: Use OpenAI to generate a semantic answer from the top chunks
-async function getOpenAISearchAnswer(query, topChunks) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("Missing OPENAI_API_KEY in environment");
+
+// Helper: Use llama3.2 to generate a semantic answer from the top chunks
+async function getLlamaSearchAnswer(query, topChunks) {
   const systemPrompt = `You are a helpful assistant. Use the following document chunks to answer the user's question. If the answer is not in the chunks, say you don't know.`;
   const context = topChunks.map((c, i) => `Chunk ${i + 1}: ${c.content}`).join("\n\n");
-  const messages = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: `Question: ${query}\n\nDocument Chunks:\n${context}` },
-  ];
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-3.5-turbo",
-      messages,
-      max_tokens: 512,
-      temperature: 0.2,
-    }),
+  
+  const response = await ollama.chat({
+    model: "llama3.2",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Question: ${query}\n\nDocument Chunks:\n${context}` }
+    ],
+    options: {
+      temperature: 0.2
+    }
   });
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || "OpenAI chat error");
-  }
-  const data = await response.json();
-  return data.choices[0].message.content;
+  
+  return response.message.content;
 }
 
 export async function GET(req) {
@@ -82,8 +49,14 @@ export async function GET(req) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400 });
     }
 
-    // Query the database for most similar chunks (using precomputed embeddings)
-    const { rows } = await db.query(SIMILARITY_SQL, [query, null]); // queryEmbedding not needed
+    // Generate embedding for the query using snowflake-arctic-embed2
+    const queryEmbedding = await getQueryEmbedding(query);
+    
+    // Format the embedding as a PostgreSQL vector literal
+    const formattedEmbedding = `[${queryEmbedding.join(',')}]`;
+    
+    // Query the database for most similar chunks using the query embedding
+    const { rows } = await db.query(SIMILARITY_SQL, [formattedEmbedding]);
 
     // Convert distance to relevance (1 - normalized distance)
     const results = rows.map(row => ({
@@ -96,8 +69,8 @@ export async function GET(req) {
       },
     }));
 
-    // Use OpenAI to generate a semantic answer from the top chunks
-    const answer = await getOpenAISearchAnswer(query, results.slice(0, 5));
+    // Use llama3.2 to generate a semantic answer from the top chunks
+    const answer = await getLlamaSearchAnswer(query, results.slice(0, 5));
 
     return NextResponse.json({ results, answer }, { status: 200 });
   } catch (err) {

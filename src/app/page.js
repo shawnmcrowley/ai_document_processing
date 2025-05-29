@@ -192,7 +192,7 @@ export default function Home() {
         )}
       </main>
       <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center text-xs text-muted-foreground py-4">
-        @2023 The Lycra Company. All rights reserved.
+        @2025 The Lycra Company. All rights reserved.
       </footer>
     </div>
   );
