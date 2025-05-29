@@ -3,9 +3,10 @@
 ## Project Foundation
 - [X] **Framework**: Use Next.js 15 as the core framework for the application.
 - [X] **Project Structure**:
-  - [X] `api/` — for backend API routes and logic.
+  - [X] `api/v1` — for backend API routes and logic.
   - [X] `components/` — for reusable React UI components.
   - [X] `scripts/` — for command-line and utility scripts.
+  - [X] `utils/` — for utilities to connect to Postgres Database Pools
 - [X] **Version Control**: Integrate the project with a Git repository for source control and collaboration.
 - [X] **Environment Configuration**:
   - [X] Add a `.env.local` file to manage environment variables securely.

@@ -4,13 +4,34 @@ import pdfParse from "pdf-parse";
 import ollama from "ollama";
 import db from "@/utils/postgres";
 
-// Helper: Chunk text (simple split by N words)
-function chunkText(text, chunkSize = 256) {
-    const words = text.split(" ");
+// Helper: Chunk text by paragraphs with overlap
+function chunkText(text, maxChunkSize = 1500) {
+    // Split by paragraphs (double newlines)
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     const chunks = [];
-    for (let i = 0; i < words.length; i += chunkSize) {
-        chunks.push(words.slice(i, i + chunkSize).join(" "));
+    let currentChunk = "";
+    
+    for (const paragraph of paragraphs) {
+        // If adding this paragraph would exceed max size, save current chunk and start a new one
+        if (currentChunk.length + paragraph.length > maxChunkSize && currentChunk.length > 0) {
+            chunks.push(currentChunk.trim());
+            // Start new chunk with some overlap (last paragraph of previous chunk)
+            const lastParagraph = currentChunk.split(/\n\s*\n/).pop() || "";
+            currentChunk = lastParagraph + "\n\n" + paragraph;
+        } else {
+            // Add paragraph to current chunk
+            if (currentChunk.length > 0) {
+                currentChunk += "\n\n";
+            }
+            currentChunk += paragraph;
+        }
     }
+    
+    // Add the last chunk if not empty
+    if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+    }
+    
     return chunks;
 }
 
@@ -43,7 +64,7 @@ export async function POST(req) {
         // Extract text from PDF using pdf-parse
         const data = await pdfParse(pdfBuffer);
         const allText = data.text;
-        const chunks = chunkText(allText, 256);
+        const chunks = chunkText(allText, 1500);
 
         // Get embeddings using Ollama
         const embeddings = await getEmbeddingsOllama(chunks);
