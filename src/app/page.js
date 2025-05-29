@@ -7,12 +7,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FiInfo, FiUpload, FiSearch, FiChevronDown, FiX } from "react-icons/fi";
+import { FiUpload, FiSearch, FiChevronDown, FiX } from "react-icons/fi";
+import Image from "next/image";
 
 const MODEL_OPTIONS = [
   { value: "llama3:2", label: "Llama 3.2" },
-  { value: "snowflake-arctic-embed2", label: "Snowflake Arctic Embed 2" },
-  { value: "text-embedding-ada-002", label: "OpenAI Ada 002" },
+  { value: "deepcoder2", label: "Deep Coder 2" },
+  
 ];
 
 export default function Home() {
@@ -74,7 +75,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900 flex flex-col">
       <header className="w-full flex items-center justify-between px-8 py-5 border-b bg-white/90 backdrop-blur sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
-          <FiInfo className="text-blue-600 text-2xl" />
+          <Image src="/images/LycraLogo.jpg" alt="Lycra Logo" width={32} height={32} />
           <span className="font-bold text-xl tracking-tight">AI Document Processing</span>
         </div>
         <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -99,23 +100,10 @@ export default function Home() {
             <FileUploader onFilesSelected={handleFilesSelected} disabled={isProcessing} />
             {isProcessing && <div className="text-blue-600 mt-4 animate-pulse">Processing...</div>}
             {error && <div className="text-red-600 mt-4 font-medium">{error}</div>}
-            {results && (
-              <ScrollArea className="mt-4 h-64 w-full rounded border bg-muted p-2">
-                <div className="flex flex-col gap-6">
-                  {results.chunks && results.chunks.map((chunk, idx) => (
-                    <div key={idx} className="relative group bg-white rounded-lg shadow p-5 border border-gray-100 hover:shadow-lg transition-all">
-                      {chunk.length > 300 && (
-                        <span className="absolute -top-4 left-4 bg-blue-100 text-blue-600 rounded-full px-3 py-1 text-xs font-bold flex items-center gap-1 shadow">
-                          <FiInfo className="inline-block" /> Chunk
-                        </span>
-                      )}
-                      <div className="text-base whitespace-pre-wrap break-words leading-relaxed font-mono">
-                        {chunk}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
+            {results && results.chunks && (
+              <div className="mt-4 text-green-600 font-medium">
+                Document processed successfully!
+              </div>
             )}
           </CardContent>
         </Card>
@@ -141,22 +129,17 @@ export default function Home() {
               </Button>
             </form>
             {searchResults.length > 0 && (
-              <ScrollArea className="h-72 w-full rounded border bg-muted p-2">
+              <ScrollArea className="h-[500px] w-full rounded border bg-muted p-2">
                 <div className="flex flex-col gap-4">
                   {searchResults.map((result, idx) => (
-                    <Card key={idx} className="bg-white border border-gray-200 rounded-lg shadow hover:shadow-lg transition-all">
+                    <Card key={idx} className="bg-white border border-gray-200 rounded-lg shadow hover:shadow-lg transition-all w-full">
                       <CardContent className="p-4 flex flex-col gap-2">
                         <div className="flex items-center gap-2">
                           <Badge className="bg-green-100 text-green-700 px-2 py-1 text-xs font-semibold">
                             {(result.relevance * 100).toFixed(1)}% Relevant
                           </Badge>
-                          {result.content.length > 300 && (
-                            <Badge className="bg-blue-100 text-blue-600 px-2 py-1 text-xs font-semibold flex items-center gap-1">
-                              <FiInfo className="inline-block mr-1" /> Chunk
-                            </Badge>
-                          )}
                         </div>
-                        <div className="text-base whitespace-pre-wrap break-words leading-relaxed font-mono">
+                        <div className="text-base whitespace-pre-wrap break-words leading-relaxed font-mono w-full">
                           {result.content}
                         </div>
                         <div className="flex justify-end">

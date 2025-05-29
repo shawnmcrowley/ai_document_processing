@@ -23,7 +23,7 @@
 
 2. **API Layer**
    - [X] Build API endpoints in the `api/v1` folder to expose backend functionality to the frontend.
-   - [ ] Ensure endpoints are secure and leverage environment variables for sensitive data.
+   - [X] Ensure endpoints are secure and leverage environment variables for sensitive data.
 
 3. **Component Development**
    - [X] Create modular, reusable UI components in the `components/` folder.
@@ -41,6 +41,5 @@
 - Prioritize backend and script functionality before UI development.
 - Use Git for all version control and collaboration.
 - Keep sensitive keys and configuration in `.env.local` and never commit them to the repository.
+- Adjusted Database Vector Size
 
----
-This plan ensures a solid foundation, clear structure, and a backend-first approach for robust document processing and search capabilities.
