@@ -4,22 +4,71 @@ import pdfParse from "pdf-parse";
 import ollama from "ollama";
 import db from "@/utils/postgres";
 
-// Helper: Chunk text by paragraphs with overlap
-function chunkText(text, maxChunkSize = 1500) {
-    // Split by paragraphs (double newlines)
-    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+// Helper: Simplified but effective text chunking for better readability
+function chunkText(text, maxChunkSize = 3000) {
+    // Step 1: Clean up text for better paragraph detection
+    const cleanedText = text
+        .replace(/\r\n/g, '\n')
+        .replace(/([a-z])\n([a-z])/gi, '$1 $2')  // Join broken sentences
+        .replace(/\n{3,}/g, '\n\n')              // Normalize multiple line breaks
+        .replace(/\s{2,}/g, ' ');                // Normalize multiple spaces
+    
+    // Step 2: Split into paragraphs more aggressively
+    // Look for actual paragraph breaks, section headers, bullet points
+    const paragraphSplitters = [
+        /\n\s*\n/,                              // Double line breaks
+        /\n(?=[A-Z][A-Z\s]{2,}[A-Z])/,          // ALL CAPS HEADERS
+        /\n(?=\d+\.\s+[A-Z])/,                  // Numbered sections (1. Title)
+        /\n(?=[A-Z][a-zA-Z\s]{0,30}:)/,         // Title: format
+        /\n(?=•|\*|\-\s+[A-Z])/                 // Bullet points
+    ];
+    
+    // Join all splitters with OR operator
+    const splitPattern = new RegExp(paragraphSplitters.map(p => p.source).join('|'), 'g');
+    
+    // Split text and filter out empty paragraphs
+    const paragraphs = cleanedText
+        .split(splitPattern)
+        .map(p => p.trim())
+        .filter(p => p.length > 20);  // Minimum meaningful paragraph size
+    
+    // Step 3: Create chunks from paragraphs
     const chunks = [];
     let currentChunk = "";
     
     for (const paragraph of paragraphs) {
-        // If adding this paragraph would exceed max size, save current chunk and start a new one
-        if (currentChunk.length + paragraph.length > maxChunkSize && currentChunk.length > 0) {
+        // If this single paragraph is too large, split by sentences
+        if (paragraph.length > maxChunkSize) {
+            // Save current chunk if not empty
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk);
+                currentChunk = "";
+            }
+            
+            // Split by sentences and create chunks
+            const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
+            let sentenceChunk = "";
+            
+            for (const sentence of sentences) {
+                if (sentenceChunk.length + sentence.length > maxChunkSize && sentenceChunk.length > 0) {
+                    chunks.push(sentenceChunk.trim());
+                    sentenceChunk = sentence;
+                } else {
+                    sentenceChunk += sentence;
+                }
+            }
+            
+            if (sentenceChunk.length > 0) {
+                chunks.push(sentenceChunk.trim());
+            }
+        }
+        // If adding this paragraph would exceed max size, start a new chunk
+        else if (currentChunk.length + paragraph.length + 2 > maxChunkSize && currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
-            // Start new chunk with some overlap (last paragraph of previous chunk)
-            const lastParagraph = currentChunk.split(/\n\s*\n/).pop() || "";
-            currentChunk = lastParagraph + "\n\n" + paragraph;
-        } else {
-            // Add paragraph to current chunk
+            currentChunk = paragraph;
+        } 
+        // Otherwise add to current chunk
+        else {
             if (currentChunk.length > 0) {
                 currentChunk += "\n\n";
             }
@@ -64,7 +113,7 @@ export async function POST(req) {
         // Extract text from PDF using pdf-parse
         const data = await pdfParse(pdfBuffer);
         const allText = data.text;
-        const chunks = chunkText(allText, 1500);
+        const chunks = chunkText(allText, 3000);
 
         // Get embeddings using Ollama
         const embeddings = await getEmbeddingsOllama(chunks);
