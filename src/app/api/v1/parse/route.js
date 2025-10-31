@@ -4,75 +4,156 @@ import pdfParse from "pdf-parse";
 import ollama from "ollama";
 import db from "@/utils/postgres";
 
-// Helper: Simplified but effective text chunking for better readability
+// Helper: Enhanced text chunking for improved readability and semantic coherence
 function chunkText(text, maxChunkSize = 3000) {
-    // Step 1: Clean up text for better paragraph detection
+    // Step 1: Normalize and clean text for better structure detection
     const cleanedText = text
         .replace(/\r\n/g, '\n')
-        .replace(/([a-z])\n([a-z])/gi, '$1 $2')  // Join broken sentences
-        .replace(/\n{3,}/g, '\n\n')              // Normalize multiple line breaks
-        .replace(/\s{2,}/g, ' ');                // Normalize multiple spaces
+        .replace(/([a-z0-9])\n([a-z0-9])/gi, '$1 $2')  // Join broken sentences
+        .replace(/\n{3,}/g, '\n\n')                    // Normalize multiple line breaks
+        .replace(/\s{2,}/g, ' ')                       // Normalize multiple spaces
+        .trim();
     
-    // Step 2: Split into paragraphs more aggressively
-    // Look for actual paragraph breaks, section headers, bullet points
-    const paragraphSplitters = [
-        /\n\s*\n/,                              // Double line breaks
-        /\n(?=[A-Z][A-Z\s]{2,}[A-Z])/,          // ALL CAPS HEADERS
-        /\n(?=\d+\.\s+[A-Z])/,                  // Numbered sections (1. Title)
-        /\n(?=[A-Z][a-zA-Z\s]{0,30}:)/,         // Title: format
-        /\n(?=•|\*|\-\s+[A-Z])/                 // Bullet points
-    ];
+    // Step 2: Identify document structure elements
+    const structureElements = {
+        // Headers and titles
+        headers: /\n(?=[A-Z][A-Z0-9\s]{2,}[A-Z0-9])/,                  // ALL CAPS HEADERS
+        numberedSections: /\n(?=(?:\d+\.)+\s+[A-Z])/,                  // Numbered sections (1.2.3. Title)
+        titleFormat: /\n(?=[A-Z][a-zA-Z0-9\s]{0,40}:)/,                // Title: format
+        
+        // Lists and bullet points
+        bulletPoints: /\n(?=(?:•|\*|\-|\+|\d+[.)])\s+\S)/,             // Any kind of list item
+        
+        // Tables and structured data
+        tables: /\n(?=[\|\+\-]{3,})/,                                  // Table borders
+        
+        // Paragraph breaks
+        paragraphBreaks: /\n\s*\n/,                                    // Double line breaks
+        
+        // Special document sections
+        sections: /\n(?=(?:SECTION|CHAPTER|APPENDIX|EXHIBIT)\s+\d+)/i  // Common document section markers
+    };
     
-    // Join all splitters with OR operator
-    const splitPattern = new RegExp(paragraphSplitters.map(p => p.source).join('|'), 'g');
+    // Create a combined pattern for splitting
+    const splitPatternSource = Object.values(structureElements)
+        .map(pattern => pattern.source)
+        .join('|');
+    const splitPattern = new RegExp(splitPatternSource, 'g');
     
-    // Split text and filter out empty paragraphs
-    const paragraphs = cleanedText
+    // Split text into semantic blocks and filter out tiny fragments
+    const blocks = cleanedText
         .split(splitPattern)
-        .map(p => p.trim())
-        .filter(p => p.length > 20);  // Minimum meaningful paragraph size
+        .map(block => block.trim())
+        .filter(block => block.length > 15);  // Minimum meaningful block size
     
-    // Step 3: Create chunks from paragraphs
+    // Step 3: Create semantically coherent chunks
     const chunks = [];
     let currentChunk = "";
+    let currentChunkContext = "";  // Track the context of the current chunk
     
-    for (const paragraph of paragraphs) {
-        // If this single paragraph is too large, split by sentences
-        if (paragraph.length > maxChunkSize) {
+    // Helper to check if a block is a header/title
+    const isHeaderOrTitle = (block) => {
+        return (
+            /^[A-Z][A-Z\s]{2,}[A-Z]/.test(block) ||                // ALL CAPS HEADER
+            /^(?:\d+\.)+\s+[A-Z]/.test(block) ||                   // Numbered section
+            /^[A-Z][a-zA-Z\s]{0,40}:/.test(block) ||              // Title: format
+            /^(?:SECTION|CHAPTER|APPENDIX|EXHIBIT)\s+\d+/i.test(block)  // Section marker
+        );
+    };
+    
+    // Process each semantic block
+    for (const block of blocks) {
+        // Case 1: Block is too large for a single chunk
+        if (block.length > maxChunkSize) {
             // Save current chunk if not empty
             if (currentChunk.length > 0) {
-                chunks.push(currentChunk);
+                chunks.push(currentChunk.trim());
                 currentChunk = "";
             }
             
-            // Split by sentences and create chunks
-            const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-            let sentenceChunk = "";
+            // For large blocks, try to split by semantic units first
+            const subBlocks = block
+                .split(/(?<=\.|\?|\!)\s+(?=[A-Z])/)  // Split by sentence boundaries
+                .filter(sb => sb.trim().length > 0);
             
-            for (const sentence of sentences) {
-                if (sentenceChunk.length + sentence.length > maxChunkSize && sentenceChunk.length > 0) {
-                    chunks.push(sentenceChunk.trim());
-                    sentenceChunk = sentence;
-                } else {
-                    sentenceChunk += sentence;
+            if (subBlocks.length > 1) {
+                // Process sentences into chunks
+                let subChunk = "";
+                for (const sentence of subBlocks) {
+                    if ((subChunk.length + sentence.length + 1) > maxChunkSize && subChunk.length > 0) {
+                        chunks.push(subChunk.trim());
+                        subChunk = sentence;
+                    } else {
+                        subChunk += (subChunk.length > 0 ? ' ' : '') + sentence;
+                    }
+                }
+                if (subChunk.length > 0) {
+                    chunks.push(subChunk.trim());
+                }
+            } else {
+                // If we can't split semantically, split by character count as last resort
+                for (let i = 0; i < block.length; i += maxChunkSize) {
+                    // Try to find a space to break at
+                    let endPos = Math.min(i + maxChunkSize, block.length);
+                    if (endPos < block.length) {
+                        const nextSpace = block.indexOf(' ', endPos - 100);
+                        if (nextSpace > 0 && nextSpace < endPos + 100) {
+                            endPos = nextSpace;
+                        }
+                    }
+                    chunks.push(block.substring(i, endPos).trim());
                 }
             }
             
-            if (sentenceChunk.length > 0) {
-                chunks.push(sentenceChunk.trim());
-            }
+            continue;  // Skip to next block
         }
-        // If adding this paragraph would exceed max size, start a new chunk
-        else if (currentChunk.length + paragraph.length + 2 > maxChunkSize && currentChunk.length > 0) {
+        
+        // Case 2: Block is a header/title - start a new chunk to keep headers with their content
+        if (isHeaderOrTitle(block)) {
+            // If we already have content, save the current chunk
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk.trim());
+            }
+            
+            // Start a new chunk with this header
+            currentChunk = block;
+            currentChunkContext = block;  // Track this as the current context
+            continue;
+        }
+        
+        // Case 3: Adding this block would exceed max size
+        if ((currentChunk.length + block.length + 4) > maxChunkSize && currentChunk.length > 0) {
             chunks.push(currentChunk.trim());
-            currentChunk = paragraph;
+            
+            // If we have context, start new chunk with context reminder + new block
+            if (currentChunkContext && currentChunkContext !== block) {
+                // Only include context if it's short enough
+                if (currentChunkContext.length < 100) {
+                    currentChunk = `[Continued: ${currentChunkContext}]\n\n${block}`;
+                } else {
+                    currentChunk = block;
+                }
+            } else {
+                currentChunk = block;
+            }
         } 
-        // Otherwise add to current chunk
+        // Case 4: Add to current chunk with appropriate spacing
         else {
             if (currentChunk.length > 0) {
-                currentChunk += "\n\n";
+                // Determine appropriate separator based on content type
+                if (/^(?:•|\*|\-|\+|\d+[.)])\s+/.test(block)) {
+                    // List items get a single newline
+                    currentChunk += '\n' + block;
+                } else if (/[\|\+\-]{3,}/.test(block)) {
+                    // Table elements get a single newline
+                    currentChunk += '\n' + block;
+                } else {
+                    // Regular paragraphs get double newline
+                    currentChunk += '\n\n' + block;
+                }
+            } else {
+                currentChunk = block;
             }
-            currentChunk += paragraph;
         }
     }
     
@@ -81,7 +162,20 @@ function chunkText(text, maxChunkSize = 3000) {
         chunks.push(currentChunk.trim());
     }
     
-    return chunks;
+    // Step 4: Post-process chunks to ensure they're well-formed
+    return chunks.map(chunk => {
+        // Ensure lists and tables maintain their structure
+        return chunk
+            .replace(/\n{3,}/g, '\n\n')  // Normalize excessive newlines
+            .trim();
+    });
+}
+
+// Helper: L2 normalize a vector
+function l2Normalize(vector) {
+    const sumSquares = vector.reduce((sum, val) => sum + val * val, 0);
+    const norm = Math.sqrt(sumSquares) || 1;  // fallback to 1 if zero vector
+    return vector.map(x => x / norm);
 }
 
 // Helper: Call local Ollama embedding model using the ollama npm package
@@ -95,7 +189,8 @@ async function getEmbeddingsOllama(texts) {
             model: "snowflake-arctic-embed2",
             prompt: text,
         });
-        embeddings.push(result.embedding);
+        // L2 normalize the embedding before storing
+        embeddings.push(l2Normalize(result.embedding));
     }
     return embeddings;
 }
@@ -142,7 +237,8 @@ export async function POST(req) {
             for (let i = 0; i < dim; i++) {
                 mean[i] /= vectors.length;
             }
-            return mean;
+            // Normalize the mean vector before returning
+            return l2Normalize(mean);
         }
         const docEmbedding = meanVector(embeddings);
         const docInsert = await db.query(

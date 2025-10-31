@@ -24,7 +24,13 @@ const SIMILARITY_SQL = `
 
 // Helper: Use llama3.2 to generate a semantic answer from the top chunks
 async function getLlamaSearchAnswer(query, topChunks) {
-  const systemPrompt = `You are a helpful assistant. Use the following document chunks to answer the user's question. If the answer is not in the chunks, say you don't know.`;
+  const systemPrompt = `You are a strict factual assistant. Follow these rules:
+1. Only use information explicitly stated in the provided document chunks
+2. For each fact or statement, cite the chunk number in [brackets], e.g. [Chunk 2]
+3. If the information needed is not in the chunks, say "I don't know based on the provided documents"
+4. Never invent, assume, or infer facts not directly supported by the chunks
+5. Keep answers concise and focused on the question`;
+
   const context = topChunks.map((c, i) => `Chunk ${i + 1}: ${c.content}`).join("\n\n");
   
   const response = await ollama.chat({
@@ -34,7 +40,8 @@ async function getLlamaSearchAnswer(query, topChunks) {
       { role: "user", content: `Question: ${query}\n\nDocument Chunks:\n${context}` }
     ],
     options: {
-      temperature: 0.2
+      temperature: 0.05,  // Very low temperature for factual responses
+      maxTokens: 512     // Reasonable limit for focused answers
     }
   });
   
@@ -58,16 +65,40 @@ export async function GET(req) {
     // Query the database for most similar chunks using the query embedding
     const { rows } = await db.query(SIMILARITY_SQL, [formattedEmbedding]);
 
-    // Convert distance to relevance (1 - normalized distance)
-    const results = rows.map(row => ({
-      content: row.content,
-      relevance: 1 - Math.min(Math.max(row.distance, 0), 1),
-      metadata: {
-        filename: row.filename,
-        chunk_index: row.chunk_index,
-        ...row.metadata,
-      },
-    }));
+    // Compute normalized relevance scores across the result set
+    const distances = rows.map(r => r.distance);
+    const minDist = Math.min(...distances);
+    const maxDist = Math.max(...distances);
+    
+    // Parameters for relevance calculation
+    const alpha = 10;  // Controls exponential decay rate
+    
+    const results = rows.map((row, idx) => {
+      // First normalize the distance to [0,1] range
+      let normalized;
+      if (maxDist - minDist < 1e-12) {
+        // If all distances are equal, only first result gets high relevance
+        normalized = idx === 0 ? 1 : 0.5;
+      } else {
+        // Otherwise normalize based on min/max distance
+        normalized = (maxDist - row.distance) / (maxDist - minDist);
+        normalized = Math.max(0, Math.min(1, normalized));
+      }
+      
+      // Convert normalized distance to relevance score using exponential transform
+      const relevance = Math.tanh(alpha * normalized);
+      
+      return {
+        content: row.content,
+        relevance,
+        rawDistance: row.distance,  // Include raw distance for debugging
+        metadata: {
+          filename: row.filename,
+          chunk_index: row.chunk_index,
+          ...row.metadata,
+        },
+      };
+    });
 
     // Use llama3.2 to generate a semantic answer from the top chunks
     const answer = await getLlamaSearchAnswer(query, results.slice(0, 5));
