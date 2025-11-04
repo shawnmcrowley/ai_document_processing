@@ -4,177 +4,233 @@ import pdfParse from "pdf-parse";
 import ollama from "ollama";
 import db from "@/utils/postgres";
 
-// Helper: Enhanced text chunking for improved readability and semantic coherence
-function chunkText(text, maxChunkSize = 3000) {
-    // Step 1: Normalize and clean text for better structure detection
-    const cleanedText = text
+// Debug logging helper
+function logDebug(stage, info) {
+    console.log(`[${stage}]`, JSON.stringify(info, null, 2));
+}
+
+// Performance tracking helper
+class Timer {
+    constructor(name) {
+        this.name = name;
+        this.start = Date.now();
+    }
+    
+    checkpoint(stage) {
+        const elapsed = Date.now() - this.start;
+        console.log(`[${this.name}] ${stage}: ${elapsed}ms`);
+        return elapsed;
+    }
+    
+    reset() {
+        this.start = Date.now();
+    }
+}
+
+// Fast text chunking with optimized processing
+function chunkText(text, maxChunkSize = 5000) {
+    const timer = new Timer('chunkText');
+    const overlap = Math.floor(maxChunkSize * 0.1); // 10% overlap
+    const processedChunks = [];
+    
+    logDebug('chunkText:start', { 
+        inputLength: text.length,
+        maxChunkSize,
+        overlap
+    });
+
+    // Efficient text normalization
+    const normalizedText = text
         .replace(/\r\n/g, '\n')
-        .replace(/([a-z0-9])\n([a-z0-9])/gi, '$1 $2')  // Join broken sentences
-        .replace(/\n{3,}/g, '\n\n')                    // Normalize multiple line breaks
-        .replace(/\s{2,}/g, ' ')                       // Normalize multiple spaces
+        .replace(/\s+/g, ' ')
         .trim();
     
-    // Step 2: Identify document structure elements
-    const structureElements = {
-        // Headers and titles
-        headers: /\n(?=[A-Z][A-Z0-9\s]{2,}[A-Z0-9])/,                  // ALL CAPS HEADERS
-        numberedSections: /\n(?=(?:\d+\.)+\s+[A-Z])/,                  // Numbered sections (1.2.3. Title)
-        titleFormat: /\n(?=[A-Z][a-zA-Z0-9\s]{0,40}:)/,                // Title: format
+    timer.checkpoint('text normalized');
+    
+    // Split into manageable sections using structural patterns
+    const sections = normalizedText.split(/(?:\n\s*\n|\n(?=[A-Z][A-Z\s]*:|\d+\.))/);
+    
+    logDebug('initial-split', {
+        sectionCount: sections.length,
+        averageLength: Math.round(sections.reduce((sum, s) => sum + s.length, 0) / sections.length)
+    });
+
+    // Track the current context and buffer
+    let currentContext = '';
+    let buffer = '';
+    let bufferContextLength = 0;
+    
+    // Process sections with context awareness
+    for (let i = 0; i < sections.length; i++) {
+        const section = sections[i].trim();
+        if (!section) continue;
         
-        // Lists and bullet points
-        bulletPoints: /\n(?=(?:•|\*|\-|\+|\d+[.)])\s+\S)/,             // Any kind of list item
+        // Check if section starts with a header-like pattern
+        const headerMatch = /^(?:[A-Z][A-Z\s]{2,}[A-Z]|(?:\d+\.)+\s+[A-Z]|[A-Z][a-zA-Z\s]{0,40}:|(?:SECTION|CHAPTER|APPENDIX|EXHIBIT)\s+\d+)/i.exec(section);
         
-        // Tables and structured data
-        tables: /\n(?=[\|\+\-]{3,})/,                                  // Table borders
-        
-        // Paragraph breaks
-        paragraphBreaks: /\n\s*\n/,                                    // Double line breaks
-        
-        // Special document sections
-        sections: /\n(?=(?:SECTION|CHAPTER|APPENDIX|EXHIBIT)\s+\d+)/i  // Common document section markers
-    };
-    
-    // Create a combined pattern for splitting
-    const splitPatternSource = Object.values(structureElements)
-        .map(pattern => pattern.source)
-        .join('|');
-    const splitPattern = new RegExp(splitPatternSource, 'g');
-    
-    // Split text into semantic blocks and filter out tiny fragments
-    const blocks = cleanedText
-        .split(splitPattern)
-        .map(block => block.trim())
-        .filter(block => block.length > 15);  // Minimum meaningful block size
-    
-    // Step 3: Create semantically coherent chunks
-    const chunks = [];
-    let currentChunk = "";
-    let currentChunkContext = "";  // Track the context of the current chunk
-    
-    // Helper to check if a block is a header/title
-    const isHeaderOrTitle = (block) => {
-        return (
-            /^[A-Z][A-Z\s]{2,}[A-Z]/.test(block) ||                // ALL CAPS HEADER
-            /^(?:\d+\.)+\s+[A-Z]/.test(block) ||                   // Numbered section
-            /^[A-Z][a-zA-Z\s]{0,40}:/.test(block) ||              // Title: format
-            /^(?:SECTION|CHAPTER|APPENDIX|EXHIBIT)\s+\d+/i.test(block)  // Section marker
-        );
-    };
-    
-    // Process each semantic block
-    for (const block of blocks) {
-        // Case 1: Block is too large for a single chunk
-        if (block.length > maxChunkSize) {
-            // Save current chunk if not empty
-            if (currentChunk.length > 0) {
-                chunks.push(currentChunk.trim());
-                currentChunk = "";
+        if (headerMatch) {
+            // Save current buffer before starting new context
+            if (buffer) {
+                processedChunks.push(
+                    currentContext ? `[Context: ${currentContext}]\n\n${buffer}` : buffer
+                );
+                timer.checkpoint(`chunk-${processedChunks.length}`);
             }
-            
-            // For large blocks, try to split by semantic units first
-            const subBlocks = block
-                .split(/(?<=\.|\?|\!)\s+(?=[A-Z])/)  // Split by sentence boundaries
-                .filter(sb => sb.trim().length > 0);
-            
-            if (subBlocks.length > 1) {
-                // Process sentences into chunks
-                let subChunk = "";
-                for (const sentence of subBlocks) {
-                    if ((subChunk.length + sentence.length + 1) > maxChunkSize && subChunk.length > 0) {
-                        chunks.push(subChunk.trim());
-                        subChunk = sentence;
-                    } else {
-                        subChunk += (subChunk.length > 0 ? ' ' : '') + sentence;
-                    }
-                }
-                if (subChunk.length > 0) {
-                    chunks.push(subChunk.trim());
-                }
-            } else {
-                // If we can't split semantically, split by character count as last resort
-                for (let i = 0; i < block.length; i += maxChunkSize) {
-                    // Try to find a space to break at
-                    let endPos = Math.min(i + maxChunkSize, block.length);
-                    if (endPos < block.length) {
-                        const nextSpace = block.indexOf(' ', endPos - 100);
-                        if (nextSpace > 0 && nextSpace < endPos + 100) {
-                            endPos = nextSpace;
-                        }
-                    }
-                    chunks.push(block.substring(i, endPos).trim());
-                }
-            }
-            
-            continue;  // Skip to next block
-        }
-        
-        // Case 2: Block is a header/title - start a new chunk to keep headers with their content
-        if (isHeaderOrTitle(block)) {
-            // If we already have content, save the current chunk
-            if (currentChunk.length > 0) {
-                chunks.push(currentChunk.trim());
-            }
-            
-            // Start a new chunk with this header
-            currentChunk = block;
-            currentChunkContext = block;  // Track this as the current context
+            currentContext = section;
+            buffer = '';
+            bufferContextLength = section.length + 20; // Account for context wrapper
             continue;
         }
         
-        // Case 3: Adding this block would exceed max size
-        if ((currentChunk.length + block.length + 4) > maxChunkSize && currentChunk.length > 0) {
-            chunks.push(currentChunk.trim());
+        // Calculate effective length including potential context
+        const effectiveLength = buffer.length + section.length + 
+            (buffer ? 2 : 0) + // Newlines between sections
+            (currentContext ? bufferContextLength : 0);
             
-            // If we have context, start new chunk with context reminder + new block
-            if (currentChunkContext && currentChunkContext !== block) {
-                // Only include context if it's short enough
-                if (currentChunkContext.length < 100) {
-                    currentChunk = `[Continued: ${currentChunkContext}]\n\n${block}`;
-                } else {
-                    currentChunk = block;
+        if (effectiveLength <= maxChunkSize) {
+            // Add to current buffer
+            buffer += (buffer ? '\n\n' : '') + section;
+        } else {
+            // Save current buffer and start new one
+            if (buffer) {
+                processedChunks.push(
+                    currentContext ? `[Context: ${currentContext}]\n\n${buffer}` : buffer
+                );
+                timer.checkpoint(`chunk-${processedChunks.length}`);
+            }
+            
+            // Handle oversized sections
+            if (section.length > maxChunkSize) {
+                // Split by sentences first
+                const sentences = section.split(/(?<=[.!?])\s+(?=[A-Z])/);
+                let tempBuffer = '';
+                
+                for (const sentence of sentences) {
+                    const tempLength = tempBuffer.length + sentence.length + 
+                        (tempBuffer ? 1 : 0) + // Space between sentences
+                        (currentContext ? bufferContextLength : 0);
+                        
+                    if (tempLength <= maxChunkSize) {
+                        tempBuffer += (tempBuffer ? ' ' : '') + sentence;
+                    } else {
+                        if (tempBuffer) {
+                            processedChunks.push(
+                                currentContext ? `[Context: ${currentContext}]\n\n${tempBuffer}` : tempBuffer
+                            );
+                            timer.checkpoint(`chunk-${processedChunks.length}`);
+                        }
+                        // Handle very long sentences
+                        if (sentence.length > maxChunkSize) {
+                            const words = sentence.split(' ');
+                            tempBuffer = '';
+                            
+                            for (const word of words) {
+                                const wordLength = tempBuffer.length + word.length + 
+                                    (tempBuffer ? 1 : 0) + // Space between words
+                                    (currentContext ? bufferContextLength : 0);
+                                    
+                                if (wordLength <= maxChunkSize) {
+                                    tempBuffer += (tempBuffer ? ' ' : '') + word;
+                                } else {
+                                    if (tempBuffer) {
+                                        processedChunks.push(
+                                            currentContext ? `[Context: ${currentContext}]\n\n${tempBuffer}` : tempBuffer
+                                        );
+                                        timer.checkpoint(`chunk-${processedChunks.length}`);
+                                    }
+                                    tempBuffer = word;
+                                }
+                            }
+                        } else {
+                            tempBuffer = sentence;
+                        }
+                    }
+                }
+                
+                if (tempBuffer) {
+                    processedChunks.push(
+                        currentContext ? `[Context: ${currentContext}]\n\n${tempBuffer}` : tempBuffer
+                    );
+                    timer.checkpoint(`chunk-${processedChunks.length}`);
                 }
             } else {
-                currentChunk = block;
+                buffer = section;
             }
-        } 
-        // Case 4: Add to current chunk with appropriate spacing
-        else {
-            if (currentChunk.length > 0) {
-                // Determine appropriate separator based on content type
-                if (/^(?:•|\*|\-|\+|\d+[.)])\s+/.test(block)) {
-                    // List items get a single newline
-                    currentChunk += '\n' + block;
-                } else if (/[\|\+\-]{3,}/.test(block)) {
-                    // Table elements get a single newline
-                    currentChunk += '\n' + block;
-                } else {
-                    // Regular paragraphs get double newline
-                    currentChunk += '\n\n' + block;
-                }
-            } else {
-                currentChunk = block;
-            }
+        }
+        
+        // Log progress for long documents
+        if (i > 0 && i % 100 === 0) {
+            logDebug('chunking-progress', {
+                processedSections: i,
+                totalSections: sections.length,
+                currentChunks: processedChunks.length
+            });
         }
     }
     
-    // Add the last chunk if not empty
-    if (currentChunk.trim().length > 0) {
-        chunks.push(currentChunk.trim());
+    // Add final buffer if not empty
+    if (buffer) {
+        processedChunks.push(
+            currentContext ? `[Context: ${currentContext}]\n\n${buffer}` : buffer
+        );
+        timer.checkpoint(`chunk-${processedChunks.length}`);
     }
     
-    // Step 4: Post-process chunks to ensure they're well-formed
-    return chunks.map(chunk => {
-        // Ensure lists and tables maintain their structure
-        return chunk
-            .replace(/\n{3,}/g, '\n\n')  // Normalize excessive newlines
-            .trim();
+    logDebug('chunkText:complete', {
+        chunkCount: processedChunks.length,
+        averageChunkSize: Math.round(processedChunks.reduce((sum, chunk) => sum + chunk.length, 0) / processedChunks.length),
+        timing: timer.timings
     });
+    
+    // Final cleanup and normalization
+    return processedChunks.map(chunk => 
+        chunk
+            .replace(/\n{3,}/g, '\n\n') // Normalize excessive newlines
+            .trim()
+    );
 }
 
-// Helper: L2 normalize a vector
+// Helper: Clean text content for better chunk quality
+function cleanTextContent(text) {
+    if (!text || typeof text !== 'string') return '';
+    
+    return text
+        // Normalize unicode characters
+        .normalize('NFKC')
+        // Replace various dash types with standard dash
+        .replace(/[\u2013\u2014\u2015]/g, '-')
+        // Replace multiple spaces with single space
+        .replace(/\s+/g, ' ')
+        // Replace multiple newlines with double newline
+        .replace(/\n{3,}/g, '\n\n')
+        // Remove zero-width spaces and other invisible characters
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        // Remove non-printable characters
+        .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        .trim();
+}
+
+// Helper: L2 normalize a vector with validation
 function l2Normalize(vector) {
+    // Input validation
+    if (!vector || !Array.isArray(vector) || vector.length === 0) {
+        throw new Error('Invalid vector input for normalization');
+    }
+    
+    // Validate all elements are numbers
+    if (!vector.every(x => typeof x === 'number' && !isNaN(x))) {
+        throw new Error('Vector contains non-numeric values');
+    }
+    
     const sumSquares = vector.reduce((sum, val) => sum + val * val, 0);
-    const norm = Math.sqrt(sumSquares) || 1;  // fallback to 1 if zero vector
+    const norm = Math.sqrt(sumSquares);
+    
+    // Handle zero vectors or very small norms
+    if (norm < 1e-10) {
+        // Return a unit vector in the first dimension
+        return vector.map((_, i) => i === 0 ? 1 : 0);
+    }
+    
     return vector.map(x => x / norm);
 }
 
@@ -185,33 +241,355 @@ async function getEmbeddingsOllama(texts) {
     // To get per-chunk embeddings, call embeddings for each chunk
     const embeddings = [];
     for (const text of texts) {
-        const result = await ollama.embeddings({
-            model: "snowflake-arctic-embed2",
-            prompt: text,
-        });
-        // L2 normalize the embedding before storing
-        embeddings.push(l2Normalize(result.embedding));
+        try {
+            const result = await ollama.embeddings({
+                model: "snowflake-arctic-embed2",
+                prompt: text,
+            });
+            
+            // Validate embedding vector
+            if (!result?.embedding || !Array.isArray(result.embedding) || result.embedding.length === 0) {
+                throw new Error('Invalid embedding received from Ollama');
+            }
+            
+            // L2 normalize the embedding before storing
+            embeddings.push(l2Normalize(result.embedding));
+            
+        } catch (error) {
+            console.error('Embedding generation failed:', error);
+            // Return a default embedding vector of appropriate size (1024 for this model)
+            const defaultVector = new Array(1024).fill(1 / Math.sqrt(1024));
+            embeddings.push(defaultVector);
+        }
     }
     return embeddings;
 }
 
-export async function POST(req) {
+// Batch process helper for embeddings with enhanced error handling
+async function processBatch(texts, batchSize = 5) {
+    const results = [];
+    let lastValidEmbedding = null;
+    let errorCount = 0;
+    const maxErrors = Math.ceil(texts.length * 0.1); // Allow up to 10% errors
+
+    logDebug('batch-start', {
+        totalTexts: texts.length,
+        batchSize,
+        expectedBatches: Math.ceil(texts.length / batchSize)
+    });
+
+    // Verify Ollama is running and model is available
     try {
-        // Accept PDF as multipart/form-data
+        logDebug('model-check-start', {
+            model: "snowflake-arctic-embed2",
+            timestamp: new Date().toISOString()
+        });
+
+        const testEmbed = await ollama.embeddings({
+            model: "snowflake-arctic-embed2",
+            prompt: "test"
+        }).catch(error => {
+            logDebug('model-check-error', {
+                error: error.message,
+                stack: error.stack,
+                name: error.name
+            });
+            return null;
+        });
+
+        if (!testEmbed) {
+            // Instead of throwing, create a default embedding
+            logDebug('model-check-fallback', {
+                message: 'Using default embedding',
+                dimension: 1024
+            });
+            lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
+        } else if (!testEmbed.embedding || !Array.isArray(testEmbed.embedding) || testEmbed.embedding.length === 0) {
+            logDebug('model-check-invalid', {
+                response: JSON.stringify(testEmbed)
+            });
+            lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
+        } else {
+            lastValidEmbedding = l2Normalize(testEmbed.embedding);
+            logDebug('model-check-success', {
+                embeddingSize: testEmbed.embedding.length
+            });
+        }
+    } catch (error) {
+        // Log error but continue with default embedding
+        logDebug('model-check-fatal', {
+            error: error.message,
+            stack: error.stack,
+            type: error.name
+        });
+        lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
+    }
+
+    for (let i = 0; i < texts.length; i += batchSize) {
+        const batch = texts.slice(i, i + batchSize);
+        const batchStartTime = Date.now();
+        
+        try {
+            const batchResults = await Promise.all(
+                batch.map(async (text, idx) => {
+                    try {
+                        const result = await ollama.embeddings({
+                            model: "snowflake-arctic-embed2",
+                            prompt: text
+                        }).catch(error => {
+                            logDebug('embedding-request-error', {
+                                error: error.message,
+                                textLength: text.length,
+                                textPreview: text.slice(0, 100)
+                            });
+                            return null;
+                        });
+                        
+                        // Enhanced validation with graceful fallback
+                        if (!result) {
+                            logDebug('embedding-null-result', {
+                                textLength: text.length
+                            });
+                            return lastValidEmbedding;
+                        }
+                        
+                        if (!result.embedding) {
+                            logDebug('embedding-missing', {
+                                response: JSON.stringify(result)
+                            });
+                            return lastValidEmbedding;
+                        }
+                        
+                        if (!Array.isArray(result.embedding)) {
+                            logDebug('embedding-invalid-type', {
+                                type: typeof result.embedding
+                            });
+                            return lastValidEmbedding;
+                        }
+                        
+                        if (result.embedding.length === 0) {
+                            logDebug('embedding-empty-array', {
+                                response: JSON.stringify(result)
+                            });
+                            return lastValidEmbedding;
+                        }
+                        
+                        const normalized = l2Normalize(result.embedding);
+                        lastValidEmbedding = normalized;
+                        return normalized;
+                    } catch (error) {
+                        errorCount++;
+                        logDebug('embedding-error', {
+                            batchIndex: i,
+                            textIndex: idx,
+                            textLength: text.length,
+                            errorMessage: error.message
+                        });
+                        
+                        if (errorCount > maxErrors) {
+                            throw new Error(`Too many embedding failures: ${errorCount} errors`);
+                        }
+                        
+                        // Use last valid embedding or create a default one
+                        return lastValidEmbedding || new Array(1024).fill(1 / Math.sqrt(1024));
+                    }
+                })
+            );
+            
+            const batchTime = Date.now() - batchStartTime;
+            results.push(...batchResults);
+            
+            logDebug('embedding-batch', { 
+                processed: results.length,
+                total: texts.length,
+                batchSize,
+                currentBatch: Math.floor(i / batchSize) + 1,
+                embeddingDimension: batchResults[0]?.length,
+                processingTimeMs: batchTime,
+                errorCount
+            });
+            
+        } catch (error) {
+            logDebug('batch-error', {
+                batchIndex: i,
+                error: error.message,
+                errorCount
+            });
+            
+            if (errorCount > maxErrors) {
+                throw new Error(`Batch processing failed: ${error.message}`);
+            }
+            
+            // Fill the batch with default embeddings
+            const defaultEmbeddings = Array(batch.length).fill(
+                lastValidEmbedding || new Array(1024).fill(1 / Math.sqrt(1024))
+            );
+            results.push(...defaultEmbeddings);
+        }
+    }
+    
+    // Final validation with detailed diagnostics
+    if (!results.length) {
+        throw new Error('No embeddings generated');
+    }
+    
+    if (!results[0]?.length) {
+        throw new Error('Generated embeddings have zero dimensions');
+    }
+    
+    logDebug('batch-complete', {
+        totalEmbeddings: results.length,
+        embeddingDimension: results[0].length,
+        errorCount,
+        successRate: ((texts.length - errorCount) / texts.length * 100).toFixed(2) + '%'
+    });
+    
+    return results;
+}
+
+export async function POST(req) {
+    const timer = new Timer('pdf-processing');
+    try {
         const formData = await req.formData();
         const file = formData.get("file");
         if (!file) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+        
+        logDebug('file-info', {
+            name: file.name,
+            size: file.size,
+            type: file.type
+        });
+
         const arrayBuffer = await file.arrayBuffer();
-        // Use Uint8Array instead of Buffer (Buffer is deprecated in edge/serverless runtimes)
         const pdfBuffer = new Uint8Array(arrayBuffer);
+        timer.checkpoint('file loaded');
 
-        // Extract text from PDF using pdf-parse
-        const data = await pdfParse(pdfBuffer);
-        const allText = data.text;
-        const chunks = chunkText(allText, 3000);
+        // Extract and clean text from PDF
+        const data = await pdfParse(pdfBuffer, {
+            // Ensure we get text content
+            pagerender: function(pageData) {
+                return pageData.getTextContent();
+            }
+        });
+        timer.checkpoint('pdf parsed');
+        
+        logDebug('pdf-raw', {
+            pageCount: data.numpages,
+            rawTextLength: data.text?.length || 0,
+            firstChars: data.text?.slice(0, 100)
+        });
 
-        // Get embeddings using Ollama
-        const embeddings = await getEmbeddingsOllama(chunks);
+        // Clean the extracted text
+        const cleanedText = cleanTextContent(data.text);
+        
+        logDebug('pdf-cleaned', {
+            pageCount: data.numpages,
+            originalLength: data.text?.length || 0,
+            cleanedLength: cleanedText.length,
+            sampleText: cleanedText.slice(0, 200)
+        });
+
+        if (!cleanedText || cleanedText.length === 0) {
+            throw new Error('PDF text extraction or cleaning produced no valid content');
+        }
+        
+        // Process text and validate PDF content
+        const textWithMarkers = cleanedText
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0 && !/^\s*$/.test(line))
+            .join('\n');
+            
+        logDebug('text-preparation', {
+            originalLength: data.text.length,
+            preparedLength: textWithMarkers.length,
+            firstLines: textWithMarkers.split('\n').slice(0, 3)
+        });
+
+        if (!textWithMarkers || textWithMarkers.length === 0) {
+            throw new Error('Text preparation resulted in empty content');
+        }
+
+        // Generate chunks with validation
+        let chunks = chunkText(textWithMarkers, 5000);
+        timer.checkpoint('text chunked');
+
+        // Validate and clean chunks
+        chunks = chunks
+            .filter(chunk => chunk && typeof chunk === 'string' && chunk.trim().length > 0)
+            .map(chunk => chunk.trim())
+            .filter(chunk => chunk.length >= 50); // Minimum meaningful chunk size
+        
+        // Validate chunks before processing
+        if (!chunks || chunks.length === 0) {
+            throw new Error('No valid text chunks generated from PDF');
+        }
+        
+        logDebug('chunks-info', {
+            count: chunks.length,
+            averageSize: Math.round(chunks.reduce((sum, c) => sum + c.length, 0) / chunks.length),
+            sizes: chunks.map(c => c.length),
+            firstChunkPreview: chunks[0].slice(0, 200)
+        });
+        
+        // Verify Ollama is available
+        try {
+            const testResult = await ollama.embeddings({
+                model: "snowflake-arctic-embed2",
+                prompt: "test embedding generation"
+            });
+            
+            if (!testResult?.embedding) {
+                throw new Error('Ollama test embedding failed');
+            }
+            
+            logDebug('ollama-test', {
+                status: 'success',
+                embeddingSize: testResult.embedding.length
+            });
+        } catch (error) {
+            logDebug('ollama-test-failed', {
+                error: error.message,
+                stack: error.stack
+            });
+            throw new Error(`Ollama service error: ${error.message}`);
+        }
+        
+        // Process embeddings in smaller batches with validation
+        const embeddings = [];
+        const batchSize = 3; // Reduced batch size for better reliability
+        
+        for (let i = 0; i < chunks.length; i += batchSize) {
+            const batch = chunks.slice(i, Math.min(i + batchSize, chunks.length));
+            logDebug('processing-batch', {
+                batchNumber: Math.floor(i / batchSize) + 1,
+                batchSize: batch.length,
+                startIndex: i
+            });
+            
+            const batchEmbeddings = await Promise.all(
+                batch.map(async (chunk) => {
+                    const result = await ollama.embeddings({
+                        model: "snowflake-arctic-embed2",
+                        prompt: chunk
+                    });
+                    
+                    if (!result?.embedding) {
+                        throw new Error('Missing embedding in Ollama response');
+                    }
+                    
+                    return l2Normalize(result.embedding);
+                })
+            );
+            
+            embeddings.push(...batchEmbeddings);
+            
+            logDebug('batch-complete', {
+                totalProcessed: embeddings.length,
+                remaining: chunks.length - embeddings.length
+            });
+        }
+        timer.checkpoint('embeddings generated');
 
         // Add file name to metadata
         const fileName = file.name || "uploaded.pdf";
@@ -240,25 +618,55 @@ export async function POST(req) {
             // Normalize the mean vector before returning
             return l2Normalize(mean);
         }
+        // Use the normalized text content for the document
+        const docContent = data.text;
         const docEmbedding = meanVector(embeddings);
         const docInsert = await db.query(
             `INSERT INTO documents (filename, content, metadata, embedding) VALUES ($1, $2, $3, $4) RETURNING id`,
-            [fileName, allText, metadata, toPgVector(docEmbedding)]
+            [fileName, docContent, metadata, toPgVector(docEmbedding)]
         );
         const documentId = docInsert.rows[0].id;
 
-        // Insert chunks into document_chunks table (each chunk gets its own embedding)
-        for (let i = 0; i < chunks.length; i++) {
-            await db.query(
-                `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ($1, $2, $3, $4)`,
-                [documentId, i, chunks[i], toPgVector(embeddings[i])]
-            );
+        // Batch insert chunks using a single transaction
+        await db.query('BEGIN');
+        try {
+            const batchSize = 50;
+            for (let i = 0; i < chunks.length; i += batchSize) {
+                const batch = chunks.slice(i, Math.min(i + batchSize, chunks.length));
+                const values = batch.map((chunk, idx) => 
+                    `($1, $${idx * 3 + 2}, $${idx * 3 + 3}, $${idx * 3 + 4})`
+                ).join(',');
+                
+                const params = [documentId];
+                batch.forEach((chunk, idx) => {
+                    params.push(i + idx);
+                    params.push(chunk);
+                    params.push(toPgVector(embeddings[i + idx]));
+                });
+                
+                await db.query(
+                    `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) 
+                     VALUES ${values}`,
+                    params
+                );
+                
+                logDebug('db-batch-insert', {
+                    processed: Math.min(i + batchSize, chunks.length),
+                    total: chunks.length,
+                    batchSize
+                });
+            }
+            await db.query('COMMIT');
+        } catch (error) {
+            await db.query('ROLLBACK');
+            throw error;
         }
+        timer.checkpoint('database inserts complete');
 
-        // Return chunks and embeddings
+        // Return processing results
         return NextResponse.json({
             fileName,
-            allText,
+            content: docContent,
             chunks,
             embeddings,
             pageCount: data.numpages,

@@ -11,14 +11,34 @@ async function getQueryEmbedding(query) {
   return result.embedding;
 }
 
-// Helper: Calculate cosine similarity in SQL
+// Helper: Calculate cosine similarity in SQL with document context
 const SIMILARITY_SQL = `
-  SELECT c.id, c.content, c.embedding, c.chunk_index, d.filename, d.metadata,
-         (c.embedding <#> $1::vector) AS distance
-  FROM document_chunks c
-  JOIN documents d ON c.document_id = d.id
+  WITH ranked_chunks AS (
+    SELECT 
+      c.id,
+      c.content,
+      c.embedding,
+      c.chunk_index,
+      c.document_id,
+      d.filename,
+      d.metadata,
+      (c.embedding <#> $1::vector) AS distance,
+      LAG(c.chunk_index) OVER (PARTITION BY d.id ORDER BY c.chunk_index) as prev_chunk_idx,
+      LEAD(c.chunk_index) OVER (PARTITION BY d.id ORDER BY c.chunk_index) as next_chunk_idx
+    FROM document_chunks c
+    JOIN documents d ON c.document_id = d.id
+    WHERE (c.embedding <#> $1::vector) < 0.8  -- Similarity threshold
+    ORDER BY distance ASC
+    LIMIT 30
+  )
+  SELECT 
+    rc.*,
+    prev.content as prev_chunk_content,
+    next.content as next_chunk_content
+  FROM ranked_chunks rc
+  LEFT JOIN document_chunks prev ON prev.document_id = rc.document_id AND prev.chunk_index = rc.prev_chunk_idx
+  LEFT JOIN document_chunks next ON next.document_id = rc.document_id AND next.chunk_index = rc.next_chunk_idx
   ORDER BY distance ASC
-  LIMIT 10
 `;
 
 
@@ -65,43 +85,84 @@ export async function GET(req) {
     // Query the database for most similar chunks using the query embedding
     const { rows } = await db.query(SIMILARITY_SQL, [formattedEmbedding]);
 
-    // Compute normalized relevance scores across the result set
-    const distances = rows.map(r => r.distance);
-    const minDist = Math.min(...distances);
-    const maxDist = Math.max(...distances);
+    // Helper to check if chunks are from same section
+    function areChunksRelated(chunk1, chunk2) {
+      if (!chunk1 || !chunk2) return false;
+      // Same document and sequential chunks
+      return chunk1.document_id === chunk2.document_id && 
+             Math.abs(chunk1.chunk_index - chunk2.chunk_index) <= 1;
+    }
+
+    // Group related chunks and compute relevance
+    const groupedResults = [];
+    let currentGroup = null;
     
-    // Parameters for relevance calculation
-    const alpha = 10;  // Controls exponential decay rate
-    
-    const results = rows.map((row, idx) => {
-      // First normalize the distance to [0,1] range
-      let normalized;
-      if (maxDist - minDist < 1e-12) {
-        // If all distances are equal, only first result gets high relevance
-        normalized = idx === 0 ? 1 : 0.5;
-      } else {
-        // Otherwise normalize based on min/max distance
-        normalized = (maxDist - row.distance) / (maxDist - minDist);
-        normalized = Math.max(0, Math.min(1, normalized));
-      }
+    for (const row of rows) {
+      const normalized = row.distance < 0.8 ? (0.8 - row.distance) / 0.8 : 0;
+      const relevance = Math.tanh(10 * normalized); // alpha = 10
       
-      // Convert normalized distance to relevance score using exponential transform
-      const relevance = Math.tanh(alpha * normalized);
-      
-      return {
+      // Create result object with context
+      const resultObj = {
         content: row.content,
+        prev_content: row.prev_chunk_content,
+        next_content: row.next_chunk_content,
         relevance,
-        rawDistance: row.distance,  // Include raw distance for debugging
+        rawDistance: row.distance,
         metadata: {
           filename: row.filename,
           chunk_index: row.chunk_index,
           ...row.metadata,
         },
       };
+      
+      // Check if this chunk should be merged with previous group
+      if (currentGroup && areChunksRelated(currentGroup[currentGroup.length - 1], row)) {
+        currentGroup.push(resultObj);
+      } else {
+        if (currentGroup) {
+          groupedResults.push(currentGroup);
+        }
+        currentGroup = [resultObj];
+      }
+    }
+    if (currentGroup) {
+      groupedResults.push(currentGroup);
+    }
+    
+    // Merge chunks in each group
+    const results = groupedResults.map(group => {
+      if (group.length === 1) {
+        const result = group[0];
+        // Include surrounding context if available
+        let content = '';
+        if (result.prev_content) content += result.prev_content + "\n\n";
+        content += result.content;
+        if (result.next_content) content += "\n\n" + result.next_content;
+        return {
+          content: content.trim(),
+          relevance: result.relevance,
+          rawDistance: result.rawDistance,
+          metadata: result.metadata,
+        };
+      }
+      
+      // Merge multiple related chunks
+      return {
+        content: group.map(r => r.content).join("\n\n"),
+        relevance: Math.max(...group.map(r => r.relevance)),
+        rawDistance: Math.min(...group.map(r => r.rawDistance)),
+        metadata: {
+          ...group[0].metadata,
+          chunk_count: group.length,
+          chunk_range: `${group[0].metadata.chunk_index}-${group[group.length-1].metadata.chunk_index}`,
+        },
+      };
     });
 
-    // Use llama3.2 to generate a semantic answer from the top chunks
-    const answer = await getLlamaSearchAnswer(query, results.slice(0, 5));
+    // Use llama3.2 to generate a semantic answer from the most relevant chunks
+    // Get top results that meet minimum relevance threshold
+    const relevantResults = results.filter(r => r.relevance > 0.4).slice(0, 8);
+    const answer = await getLlamaSearchAnswer(query, relevantResults);
 
     return NextResponse.json({ results, answer }, { status: 200 });
   } catch (err) {
