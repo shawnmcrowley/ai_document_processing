@@ -139,8 +139,10 @@ export default function Home() {
                             {(result.relevance * 100).toFixed(1)}% Relevant
                           </Badge>
                         </div>
-                        <div className="text-base whitespace-pre-wrap break-words leading-relaxed font-mono w-full">
-                          {result.content}
+                        <div className="text-base break-words leading-relaxed w-full space-y-3">
+                          {result.paragraphs?.map((para, pIdx) => (
+                            <p key={pIdx} className="text-gray-700">{para}</p>
+                          ))}
                         </div>
                         <div className="flex justify-end">
                           <Button
