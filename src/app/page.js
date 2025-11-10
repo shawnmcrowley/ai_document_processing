@@ -89,7 +89,7 @@ export default function Home() {
           </SelectContent>
         </Select>
       </header>
-      <main className="flex flex-col gap-10 items-center w-full max-w-3xl mx-auto py-10 px-2 flex-1">
+      <main className="flex flex-col gap-10 items-center w-full max-w-6xl mx-auto py-10 px-6 flex-1">
         <Card className="w-full shadow-md border-0">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-lg font-semibold">
@@ -139,10 +139,13 @@ export default function Home() {
                             {(result.relevance * 100).toFixed(1)}% Relevant
                           </Badge>
                         </div>
-                        <div className="text-base break-words leading-relaxed w-full space-y-3">
+                        <div className="text-base leading-7 w-full space-y-4">
                           {result.paragraphs?.map((para, pIdx) => (
-                            <p key={pIdx} className="text-gray-700">{para}</p>
+                            <p key={pIdx} className="text-gray-800">{para}</p>
                           ))}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-3 pt-3 border-t">
+                          <span className="font-medium">{result.metadata.filename}</span>
                         </div>
                         <div className="flex justify-end">
                           <Button

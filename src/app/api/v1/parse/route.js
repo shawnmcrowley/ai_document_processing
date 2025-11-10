@@ -27,39 +27,41 @@ class Timer {
     }
 }
 
-function chunkText(text, maxChunkSize = 5000) {
+function chunkText(text, maxChunkSize = 2000) {
     if (typeof text !== 'string') text = String(text);
     
-    const processedChunks = [];
-    const paragraphs = text
-        .replace(/\r\n/g, '\n')
-        .split(/\n\s*\n/)
-        .map(p => p.trim())
-        .filter(p => p.length > 0);
+    // Split into sentences - match period, exclamation, or question mark followed by space and capital letter
+    const sentences = text
+        .replace(/\r\n/g, ' ')
+        .replace(/\n/g, ' ')
+        .split(/(?<=[.!?])\s+(?=[A-Z])/)
+        .map(s => s.trim())
+        .filter(s => s.length > 15);
     
+    const chunks = [];
     let currentChunk = [];
     let currentSize = 0;
     
-    for (const paragraph of paragraphs) {
-        const paraSize = paragraph.length + 2; // +2 for \n\n
+    for (const sentence of sentences) {
+        const sentenceSize = sentence.length + 1;
         
-        if (currentSize + paraSize <= maxChunkSize) {
-            currentChunk.push(paragraph);
-            currentSize += paraSize;
+        if (currentSize + sentenceSize <= maxChunkSize) {
+            currentChunk.push(sentence);
+            currentSize += sentenceSize;
         } else {
             if (currentChunk.length > 0) {
-                processedChunks.push(currentChunk.join('\n\n'));
+                chunks.push(currentChunk.join(' '));
             }
-            currentChunk = [paragraph];
-            currentSize = paragraph.length;
+            currentChunk = [sentence];
+            currentSize = sentenceSize;
         }
     }
     
     if (currentChunk.length > 0) {
-        processedChunks.push(currentChunk.join('\n\n'));
+        chunks.push(currentChunk.join(' '));
     }
     
-    return processedChunks;
+    return chunks;
 }
 
 function cleanTextContent(text) {
@@ -67,11 +69,20 @@ function cleanTextContent(text) {
     
     return text
         .normalize('NFKC')
+        // Remove page numbers (e.g., "Page 1", "1", "- 5 -")
+        .replace(/^\s*(?:page\s*)?\d+\s*$/gim, '')
+        .replace(/^\s*-\s*\d+\s*-\s*$/gm, '')
+        // Remove common headers/footers patterns
+        .replace(/^\s*\d+\s*\|.+$/gm, '')
+        // Remove section numbers (e.g., "1.2.3")
+        .replace(/^\s*\d+(\.\d+)*\.?\s*$/gm, '')
         .replace(/[\u2013\u2014\u2015]/g, '-')
-        .replace(/[^\S\n]+/g, ' ')  // Replace spaces/tabs but keep newlines
-        .replace(/\n{3,}/g, '\n\n')  // Max 2 newlines
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        // Remove empty lines
+        .split('\n').filter(line => line.trim().length > 0).join('\n')
         .trim();
 }
 
@@ -99,218 +110,7 @@ function l2Normalize(vector) {
     return vector.map(x => x / norm);
 }
 
-// Helper: Call local Ollama embedding model using the ollama npm package
-async function getEmbeddingsOllama(texts) {
-    // snowflake-arctic-embed-2 must be running in Ollama
-    // Ollama expects a single string for 'prompt', not an array
-    // To get per-chunk embeddings, call embeddings for each chunk
-    const embeddings = [];
-    for (const text of texts) {
-        try {
-            const result = await ollama.embeddings({
-                model: "snowflake-arctic-embed2",
-                prompt: text,
-            });
-            
-            // Validate embedding vector
-            if (!result?.embedding || !Array.isArray(result.embedding) || result.embedding.length === 0) {
-                throw new Error('Invalid embedding received from Ollama');
-            }
-            
-            // L2 normalize the embedding before storing
-            embeddings.push(l2Normalize(result.embedding));
-            
-        } catch (error) {
-            console.error('Embedding generation failed:', error);
-            // Return a default embedding vector of appropriate size (1024 for this model)
-            const defaultVector = new Array(1024).fill(1 / Math.sqrt(1024));
-            embeddings.push(defaultVector);
-        }
-    }
-    return embeddings;
-}
 
-// Batch process helper for embeddings with enhanced error handling
-async function processBatch(texts, batchSize = 5) {
-    const results = [];
-    let lastValidEmbedding = null;
-    let errorCount = 0;
-    const maxErrors = Math.ceil(texts.length * 0.1); // Allow up to 10% errors
-
-    logDebug('batch-start', {
-        totalTexts: texts.length,
-        batchSize,
-        expectedBatches: Math.ceil(texts.length / batchSize)
-    });
-
-    // Verify Ollama is running and model is available
-    try {
-        logDebug('model-check-start', {
-            model: "snowflake-arctic-embed2",
-            timestamp: new Date().toISOString()
-        });
-
-        const testEmbed = await ollama.embeddings({
-            model: "snowflake-arctic-embed2",
-            prompt: "test"
-        }).catch(error => {
-            logDebug('model-check-error', {
-                error: error.message,
-                stack: error.stack,
-                name: error.name
-            });
-            return null;
-        });
-
-        if (!testEmbed) {
-            // Instead of throwing, create a default embedding
-            logDebug('model-check-fallback', {
-                message: 'Using default embedding',
-                dimension: 1024
-            });
-            lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
-        } else if (!testEmbed.embedding || !Array.isArray(testEmbed.embedding) || testEmbed.embedding.length === 0) {
-            logDebug('model-check-invalid', {
-                response: JSON.stringify(testEmbed)
-            });
-            lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
-        } else {
-            lastValidEmbedding = l2Normalize(testEmbed.embedding);
-            logDebug('model-check-success', {
-                embeddingSize: testEmbed.embedding.length
-            });
-        }
-    } catch (error) {
-        // Log error but continue with default embedding
-        logDebug('model-check-fatal', {
-            error: error.message,
-            stack: error.stack,
-            type: error.name
-        });
-        lastValidEmbedding = new Array(1024).fill(1 / Math.sqrt(1024));
-    }
-
-    for (let i = 0; i < texts.length; i += batchSize) {
-        const batch = texts.slice(i, i + batchSize);
-        const batchStartTime = Date.now();
-        
-        try {
-            const batchResults = await Promise.all(
-                batch.map(async (text, idx) => {
-                    try {
-                        const result = await ollama.embeddings({
-                            model: "snowflake-arctic-embed2",
-                            prompt: text
-                        }).catch(error => {
-                            logDebug('embedding-request-error', {
-                                error: error.message,
-                                textLength: text.length,
-                                textPreview: text.slice(0, 100)
-                            });
-                            return null;
-                        });
-                        
-                        // Enhanced validation with graceful fallback
-                        if (!result) {
-                            logDebug('embedding-null-result', {
-                                textLength: text.length
-                            });
-                            return lastValidEmbedding;
-                        }
-                        
-                        if (!result.embedding) {
-                            logDebug('embedding-missing', {
-                                response: JSON.stringify(result)
-                            });
-                            return lastValidEmbedding;
-                        }
-                        
-                        if (!Array.isArray(result.embedding)) {
-                            logDebug('embedding-invalid-type', {
-                                type: typeof result.embedding
-                            });
-                            return lastValidEmbedding;
-                        }
-                        
-                        if (result.embedding.length === 0) {
-                            logDebug('embedding-empty-array', {
-                                response: JSON.stringify(result)
-                            });
-                            return lastValidEmbedding;
-                        }
-                        
-                        const normalized = l2Normalize(result.embedding);
-                        lastValidEmbedding = normalized;
-                        return normalized;
-                    } catch (error) {
-                        errorCount++;
-                        logDebug('embedding-error', {
-                            batchIndex: i,
-                            textIndex: idx,
-                            textLength: text.length,
-                            errorMessage: error.message
-                        });
-                        
-                        if (errorCount > maxErrors) {
-                            throw new Error(`Too many embedding failures: ${errorCount} errors`);
-                        }
-                        
-                        // Use last valid embedding or create a default one
-                        return lastValidEmbedding || new Array(1024).fill(1 / Math.sqrt(1024));
-                    }
-                })
-            );
-            
-            const batchTime = Date.now() - batchStartTime;
-            results.push(...batchResults);
-            
-            logDebug('embedding-batch', { 
-                processed: results.length,
-                total: texts.length,
-                batchSize,
-                currentBatch: Math.floor(i / batchSize) + 1,
-                embeddingDimension: batchResults[0]?.length,
-                processingTimeMs: batchTime,
-                errorCount
-            });
-            
-        } catch (error) {
-            logDebug('batch-error', {
-                batchIndex: i,
-                error: error.message,
-                errorCount
-            });
-            
-            if (errorCount > maxErrors) {
-                throw new Error(`Batch processing failed: ${error.message}`);
-            }
-            
-            // Fill the batch with default embeddings
-            const defaultEmbeddings = Array(batch.length).fill(
-                lastValidEmbedding || new Array(1024).fill(1 / Math.sqrt(1024))
-            );
-            results.push(...defaultEmbeddings);
-        }
-    }
-    
-    // Final validation with detailed diagnostics
-    if (!results.length) {
-        throw new Error('No embeddings generated');
-    }
-    
-    if (!results[0]?.length) {
-        throw new Error('Generated embeddings have zero dimensions');
-    }
-    
-    logDebug('batch-complete', {
-        totalEmbeddings: results.length,
-        embeddingDimension: results[0].length,
-        errorCount,
-        successRate: ((texts.length - errorCount) / texts.length * 100).toFixed(2) + '%'
-    });
-    
-    return results;
-}
 
 export async function POST(req) {
     const timer = new Timer('pdf-processing');
@@ -319,39 +119,17 @@ export async function POST(req) {
         const file = formData.get("file");
         if (!file) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
         
-        logDebug('file-info', {
-            name: file.name,
-            size: file.size,
-            type: file.type
-        });
-
+        logDebug('file-info', { name: file.name, size: file.size });
+        
         const arrayBuffer = await file.arrayBuffer();
         const pdfBuffer = new Uint8Array(arrayBuffer);
         timer.checkpoint('file loaded');
-
-        // Extract text from PDF
+        
         const data = await pdfParse(pdfBuffer);
         timer.checkpoint('pdf parsed');
         
-        // Ensure we have a plain text string
-        const rawText = String(data.text || '');
-        
-        logDebug('pdf-raw', {
-            pageCount: data.numpages,
-            rawTextLength: rawText.length,
-            textType: typeof rawText,
-            firstChars: rawText.slice(0, 100)
-        });
-
-        // Clean the extracted text
-        const cleanedText = cleanTextContent(rawText);
-        
-        logDebug('pdf-cleaned', {
-            pageCount: data.numpages,
-            originalLength: data.text?.length || 0,
-            cleanedLength: cleanedText.length,
-            sampleText: cleanedText.slice(0, 200)
-        });
+        const cleanedText = cleanTextContent(String(data.text || ''));
+        logDebug('text-cleaned', { length: cleanedText.length, pages: data.numpages });
 
         if (!cleanedText || cleanedText.length === 0) {
             throw new Error('PDF text extraction produced no valid content');
@@ -366,30 +144,20 @@ export async function POST(req) {
             throw new Error('No valid text chunks generated from PDF');
         }
         timer.checkpoint('text chunked');
-
-        logDebug('chunks-info', {
-            count: chunks.length,
-            averageSize: Math.round(chunks.reduce((sum, c) => sum + c.length, 0) / chunks.length)
-        });
+        logDebug('chunks-created', { count: chunks.length });
         
-        // Generate embeddings in batches
-        const embeddings = [];
-        const batchSize = 5;
-        
-        for (let i = 0; i < chunks.length; i += batchSize) {
-            const batch = chunks.slice(i, i + batchSize);
-            const batchEmbeddings = await Promise.all(
-                batch.map(async (chunk) => {
-                    const result = await ollama.embeddings({
-                        model: "snowflake-arctic-embed2",
-                        prompt: chunk
-                    });
-                    return l2Normalize(result.embedding);
-                })
-            );
-            embeddings.push(...batchEmbeddings);
-        }
+        // Generate embeddings in parallel
+        const embeddings = await Promise.all(
+            chunks.map(async (chunk) => {
+                const result = await ollama.embeddings({
+                    model: "snowflake-arctic-embed2",
+                    prompt: chunk
+                });
+                return l2Normalize(result.embedding);
+            })
+        );
         timer.checkpoint('embeddings generated');
+        logDebug('embeddings-created', { count: embeddings.length });
 
         // Helper functions
         const toPgVector = (arr) => '[' + arr.join(',') + ']';
@@ -407,14 +175,6 @@ export async function POST(req) {
         const docEmbedding = meanVector(embeddings);
         const metadataJson = JSON.stringify({ ...data.metadata, fileName });
         
-        logDebug('pre-insert-validation', {
-            fileNameType: typeof fileName,
-            docContentType: typeof docContent,
-            docContentLength: docContent.length,
-            docContentSample: docContent.slice(0, 100),
-            metadataType: typeof metadataJson
-        });
-        
         const docInsert = await db.query(
             `INSERT INTO documents (filename, content, metadata, embedding) VALUES ($1, $2, $3, $4) RETURNING id`,
             [fileName, docContent, metadataJson, toPgVector(docEmbedding)]
@@ -422,31 +182,25 @@ export async function POST(req) {
         const documentId = docInsert.rows[0].id;
 
         // Batch insert chunks
-        await db.query('BEGIN');
-        try {
-            const dbBatchSize = 50;
-            for (let i = 0; i < chunks.length; i += dbBatchSize) {
-                const batch = chunks.slice(i, i + dbBatchSize);
-                const values = batch.map((_, idx) => 
-                    `($1, $${idx * 3 + 2}, $${idx * 3 + 3}, $${idx * 3 + 4})`
-                ).join(',');
-                
-                const params = [documentId];
-                batch.forEach((chunk, idx) => {
-                    params.push(i + idx, String(chunk), toPgVector(embeddings[i + idx]));
-                });
-                
-                await db.query(
-                    `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ${values}`,
-                    params
-                );
-            }
-            await db.query('COMMIT');
-        } catch (error) {
-            await db.query('ROLLBACK');
-            throw error;
+        const dbBatchSize = 100;
+        for (let i = 0; i < chunks.length; i += dbBatchSize) {
+            const batch = chunks.slice(i, i + dbBatchSize);
+            const values = batch.map((_, idx) => 
+                `($1, $${idx * 3 + 2}, $${idx * 3 + 3}, $${idx * 3 + 4})`
+            ).join(',');
+            
+            const params = [documentId];
+            batch.forEach((chunk, idx) => {
+                params.push(i + idx, String(chunk), toPgVector(embeddings[i + idx]));
+            });
+            
+            await db.query(
+                `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ${values}`,
+                params
+            );
         }
         timer.checkpoint('database inserts complete');
+        logDebug('db-insert-complete', { documentId, chunks: chunks.length });
 
         return NextResponse.json({
             documentId,
