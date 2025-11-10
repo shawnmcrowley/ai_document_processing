@@ -21,7 +21,7 @@
    - [X] Use ModelFusion project dependencies for document processing, embeddings, and vector database integration.
    - [X] Test all scripts using Node.js at the command line before integrating with the UI or API.
    - [X] Modify scripts using Node.js at the command line to use pdf-parse instead of pdf-dist, dist is better for PDF Display, parse is better to extracting text on the server
-   - [] Update parsing and chunks to make search results more readable and logical split
+   - [X] Update parsing and chunks to make search results more readable and logical split
    
 
 2. **API Layer**
@@ -33,8 +33,8 @@
    - [X] Focus on file/folder upload, search, and metadata display components.
 
 4. **User Interface & Integration**
-   - [ ] Integrate command-line script logic into the Next.js API and UI.
-   - [ ] Build out the main user interface for uploads, search, and results display.
+   - [X] Integrate command-line script logic into the Next.js API and UI.
+   - [X] Build out the main user interface for uploads, search, and results display.
 
 5. **Testing & Iteration**
    - [ ] Write and run tests for scripts, API endpoints, and UI components.
