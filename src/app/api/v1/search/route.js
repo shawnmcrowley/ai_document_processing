@@ -57,8 +57,10 @@ export async function GET(req) {
     const results = rows
       .map(row => {
         const distance = Number(row.distance);
-        const similarity = Math.max(0, Math.min(1, 1 - distance));
-        const relevance = Math.pow(similarity, 0.8);
+        // Negative inner product: lower is better, typically ranges from -1 to 0
+        // Convert to 0-1 scale where 1 is most similar
+        const similarity = (1 + distance) / 2; // Maps [-1, 0] to [0, 0.5]
+        const relevance = Math.max(0, Math.min(1, similarity * 2)); // Scale to [0, 1]
         const content = String(row.content || '');
         // Split into paragraphs (sentences grouped by topic)
         const sentences = content.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -85,8 +87,14 @@ export async function GET(req) {
           }
         };
       })
-      .filter(r => r.relevance > 0.3)
+      .filter(r => r.relevance > 0.1)
+      .sort((a, b) => b.relevance - a.relevance)
       .slice(0, limit);
+
+    console.log('Search results:', results.map(r => ({ 
+      relevance: r.relevance.toFixed(3), 
+      distance: r.distance.toFixed(3) 
+    })));
 
     return NextResponse.json({ results }, { status: 200 });
   } catch (err) {
