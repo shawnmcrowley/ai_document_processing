@@ -173,7 +173,7 @@ export default function Home() {
               <span className="font-bold">Document Metadata</span>
               <Button onClick={() => setSelectedMetadata(null)} variant="ghost" size="sm"><FiX /></Button>
             </div>
-            <ScrollArea className="max-h-64">
+            <ScrollArea className="h-64">
               <pre className="text-xs whitespace-pre-wrap break-all">{JSON.stringify(selectedMetadata, null, 2)}</pre>
             </ScrollArea>
           </div>
