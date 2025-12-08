@@ -7,7 +7,7 @@ services:
       - ollama-data:/root/.ollama
     #network_mode: "host"
   ollama-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:latest
     ports:
       - "8080:8080"
     environment:
