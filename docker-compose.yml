@@ -1,21 +1,24 @@
 services:
   ollama:
-#    image: ollama/ollama:latest
-    image: ghcr.io/shawnmcrowley/ollama-with-models-v1:latest
-    pull_policy: never
+    image: ollama/ollama:latest
+    pull_policy: always
     ports:
       - "11434:11434"
-   # volumes:
-   #  - ollama-data:/root/.ollama
+    volumes:
+     - ollama-data:/root/.ollama
+     - /etc/ssl/certs:/etc/ssl/certs
+    network_mode: host
     
   ollama-webui:
     image: ghcr.io/open-webui/open-webui:latest
     ports:
       - "8080:8080"
+    network_mode: host
     environment:
       - OLLAMA_BASE_URL=http://localhost:11434
     volumes:
       - ollama-webui-data:/app/backend/data
+      - /etc/ssl/certs:/etc/ssl/certs
     depends_on:
       - ollama
     
@@ -42,7 +45,7 @@ services:
       - pgadmin-data:/var/lib/pgadmin
 
 volumes:
-  #ollama-data:
+  ollama-data:
   ollama-webui-data:
   pgvector-data:
   pgadmin-data:
