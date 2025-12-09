@@ -44,5 +44,5 @@
 - Prioritize backend and script functionality before UI development.
 - Use Git for all version control and collaboration.
 - Keep sensitive keys and configuration in `.env.local` and never commit them to the repository.
-- Adjusted Database Vector Size
+- Adjusted Database Vector Size from 1536 to 10124
 
