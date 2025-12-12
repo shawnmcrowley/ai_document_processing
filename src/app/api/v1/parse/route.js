@@ -1,4 +1,4 @@
-// Next.js 15 App Router API route for PDF parsing and embedding
+// Next.js 16 App Router API route for PDF parsing and embedding
 import { NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
 import ollama from "ollama";
@@ -110,7 +110,50 @@ function l2Normalize(vector) {
     return vector.map(x => x / norm);
 }
 
-
+/**
+ * @swagger
+ * /api/v1/parse:
+ *   post:
+ *     summary: Upload and parse a PDF document
+ *     description: Upload a PDF file to extract text and generate embeddings
+ *     tags:
+ *       - Documents
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: PDF file to upload
+ *     responses:
+ *       200:
+ *         description: Successfully processed PDF
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 documentId:
+ *                   type: integer
+ *                 fileName:
+ *                   type: string
+ *                 pageCount:
+ *                   type: integer
+ *                 chunkCount:
+ *                   type: integer
+ *                 embeddingDimension:
+ *                   type: integer
+ *       400:
+ *         description: No file uploaded
+ *       500:
+ *         description: Internal server error
+ */
 
 export async function POST(req) {
     const timer = new Timer('pdf-processing');

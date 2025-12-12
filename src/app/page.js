@@ -1,6 +1,7 @@
 "use client"
 import FileUploader from "@/components/FileUploader";
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,16 +79,21 @@ export default function Home() {
           <Image src="/images/LycraLogo.jpg" alt="Lycra Logo" width={32} height={32} />
           <span className="font-bold text-xl tracking-tight">AI Document Processing</span>
         </div>
-        <Select value={selectedModel} onValueChange={setSelectedModel}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Select Model" />
-          </SelectTrigger>
-          <SelectContent>
-            {MODEL_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <Select value={selectedModel} onValueChange={setSelectedModel}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Select Model" />
+            </SelectTrigger>
+            <SelectContent>
+              {MODEL_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Link href="/api-docs">
+            <Button variant="outline">API Docs</Button>
+          </Link>
+        </div>
       </header>
       <main className="flex flex-col gap-10 items-center w-full max-w-6xl mx-auto py-10 px-6 flex-1">
         <Card className="w-full shadow-md border-0">

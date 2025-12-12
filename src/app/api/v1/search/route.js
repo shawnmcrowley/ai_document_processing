@@ -39,6 +39,69 @@ const SIMILARITY_SQL = `
   LIMIT $2
 `;
 
+/**
+ * @swagger
+ * /api/v1/search:
+ *   get:
+ *     summary: Search for relevant documents
+ *     description: Semantic search using vector embeddings to find relevant document chunks
+ *     tags:
+ *       - Search
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query text
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 5
+ *         description: Maximum number of results to return
+ *     responses:
+ *       200:
+ *         description: Search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       content:
+ *                         type: string
+ *                         description: Full chunk content
+ *                       paragraphs:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: Content split into paragraphs
+ *                       relevance:
+ *                         type: number
+ *                         description: Relevance score (0-1)
+ *                       distance:
+ *                         type: number
+ *                         description: Vector distance
+ *                       metadata:
+ *                         type: object
+ *                         properties:
+ *                           filename:
+ *                             type: string
+ *                           chunk_index:
+ *                             type: integer
+ *                           document_id:
+ *                             type: integer
+ *       400:
+ *         description: Missing query parameter
+ *       500:
+ *         description: Internal server error
+ */
+
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
