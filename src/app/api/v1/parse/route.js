@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
 import ollama from "ollama";
-import db from "@/utils/postgres";
+import db from "@/lib/postgres";
 
 // Debug logging helper
 function logDebug(stage, info) {

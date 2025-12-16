@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { cn } from "@/styles/lib/utils"
+import { cn } from "@/lib/utils"
 
 function Input({
   className,

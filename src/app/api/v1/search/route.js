@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import db from "@/utils/postgres";
+import db from "@/lib/postgres";
 import ollama from "ollama";
 
 function normalizeVector(vector) {

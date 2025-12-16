@@ -1,21 +1,13 @@
 "use client"
 import FileUploader from "@/components/FileUploader";
+import Landing from "@/components/landing";
 import { useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FiUpload, FiSearch, FiChevronDown, FiX } from "react-icons/fi";
-import Image from "next/image";
-
-const MODEL_OPTIONS = [
-  { value: "llama3:2", label: "Llama 3.2" },
-  { value: "deepcoder2", label: "Deep Coder 2" },
-  
-];
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,7 +16,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedMetadata, setSelectedMetadata] = useState(null);
-  const [selectedModel, setSelectedModel] = useState(MODEL_OPTIONS[0].value);
+  const [selectedModel, setSelectedModel] = useState("llama3:2");
 
   const handleFilesSelected = async (files) => {
     setIsProcessing(true);
@@ -73,29 +65,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900 flex flex-col">
-      <header className="w-full flex items-center justify-between px-8 py-5 border-b bg-white/90 backdrop-blur sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <Image src="/images/LycraLogo.jpg" alt="Lycra Logo" width={32} height={32} />
-          <span className="font-bold text-xl tracking-tight">AI Document Processing</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <Select value={selectedModel} onValueChange={setSelectedModel}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Select Model" />
-            </SelectTrigger>
-            <SelectContent>
-              {MODEL_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Link href="/api-docs">
-            <Button variant="outline">API Docs</Button>
-          </Link>
-        </div>
-      </header>
-      <main className="flex flex-col gap-10 items-center w-full max-w-6xl mx-auto py-10 px-6 flex-1">
+    <Landing selectedModel={selectedModel} onModelChange={setSelectedModel}>
+      <div className="flex flex-col gap-10 items-center w-full">
         <Card className="w-full shadow-md border-0">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-lg font-semibold">
@@ -184,10 +155,7 @@ export default function Home() {
             </ScrollArea>
           </div>
         )}
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center text-xs text-muted-foreground py-4">
-        @2025 The Lycra Company. All rights reserved.
-      </footer>
-    </div>
+      </div>
+    </Landing>
   );
 }
