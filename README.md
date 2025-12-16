@@ -34,13 +34,56 @@ A production-ready document processing application that combines Next.js 16, Pos
 - ⚡ **No External Dependencies** - Pure fetch API, no OpenAI SDK required
 - 💾 **Metadata Tracking** - Document metadata with timestamps and file info
 
+## 🏗️ Architecture Overview
+
+This project demonstrates a production-ready Next.js application with:
+
+- **Next.js 16**: App Router with React 19
+- **PostgreSQL + pgvector**: Vector database for semantic search
+- **Ollama**: Local LLM for embeddings (Snowflake Arctic Embed)
+- **shadcn/ui**: Modern UI components
+- **Shared Components**: Header, Footer, Landing for consistent UX
+
+## 📁 Project Structure
+
+```
+ai_document_processing/
+├── src/
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── v1/
+│   │   │       ├── parse/          # PDF upload and processing
+│   │   │       └── search/         # Semantic search endpoint
+│   │   ├── api-docs/               # Swagger API documentation
+│   │   ├── configs/                # Configuration files
+│   │   ├── scripts/                # CLI tools
+│   │   ├── globals.css             # Global styles
+│   │   ├── layout.js               # Root layout
+│   │   └── page.js                 # Main upload/search page
+│   ├── components/
+│   │   ├── ui/                     # shadcn/ui components
+│   │   ├── FileUploader.jsx        # Drag-and-drop uploader
+│   │   ├── header.js               # Shared header with model selector
+│   │   ├── footer.js               # Shared footer
+│   │   └── landing.js              # Page wrapper component
+│   └── lib/
+│       ├── postgres.js             # Database connection
+│       └── utils.js                # Utility functions
+├── public/
+│   ├── images/                     # Logo and assets
+│   ├── manifest.json               # PWA manifest
+│   └── sw.js                       # Service worker
+├── .env.local                      # Environment variables
+└── package.json
+```
+
 ## 🚀 Getting Started
 
 ### Prerequisites
 
 - Node.js 18.17 or later
 - PostgreSQL 14+ with pgvector extension
-- OpenAI API key
+- Ollama installed locally
 
 ### Installation
 
@@ -53,6 +96,10 @@ cd ai_document_processing
 
 # Install dependencies
 npm install
+
+# Install Ollama models
+ollama pull snowflake-arctic-embed2
+ollama pull llama3.2
 
 # Run development server
 npm run dev
@@ -145,8 +192,25 @@ CREATE INDEX IF NOT EXISTS idx_documents_embedding
 Create `.env.local` in the project root:
 
 ```env
-OPENAI_API_KEY=your_openai_api_key
 DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+OLLAMA_HOST=http://localhost:11434
+```
+
+### Import Aliases
+
+Configured in `jsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "paths": {
+      "@/app/*": ["app/*"],
+      "@/components/*": ["components/*"],
+      "@/lib/*": ["lib/*"]
+    }
+  }
+}
 ```
 
 ### PDF Parse Fix
@@ -157,14 +221,32 @@ If you encounter issues with pdf-parse:
 2. Change line 6: `let isDebugMode = ! module.parent;` to `let isDebugMode = false;`
 3. Clear Next.js cache: `rm -rf .next/cache`
 
-## 🎯 Usage
+## 🎯 Key Features
 
-### Web Interface
+### Model Selection
+- **Header Dropdown**: Select between Llama 3.2 and Deep Coder 2
+- **Global State**: Model selection persists across upload and search
 
-1. Upload documents via drag-and-drop or file picker
-2. Documents are automatically processed and chunked
-3. Use the search interface to query documents semantically
-4. View results with similarity scores and metadata
+### Document Upload
+- **Drag-and-Drop**: Upload PDFs with visual feedback
+- **Processing**: Automatic text extraction and chunking
+- **Embeddings**: Generate vector embeddings using Snowflake Arctic Embed
+- **Storage**: Save to PostgreSQL with metadata
+
+### Semantic Search
+- **Natural Language**: Query documents using plain English
+- **Relevance Scores**: View similarity percentages
+- **Metadata**: Inspect document details
+- **Pagination**: Scroll through results
+
+### Shared Components
+- **Header**: Logo, model selector, navigation (Get Started, API Docs)
+- **Footer**: Copyright information
+- **Landing**: Consistent page wrapper for all routes
+
+### API Documentation
+- **Swagger UI**: Interactive API docs at `/api-docs`
+- **Endpoints**: `/api/v1/parse` (upload), `/api/v1/search` (query)
 
 ### CLI Tool
 
@@ -218,8 +300,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Next.js team for the amazing framework
 - PostgreSQL and pgvector for vector database capabilities
-- Ollama for embeddings and chat completions
+- Ollama for local LLM inference
 - Snowflake for Arctic Embed model
+- shadcn/ui for beautiful components
 
 ## 📧 Contact
 
