@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "dev:proxy": "USE_PROXY=true next dev --turbo",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

@@ -2,6 +2,14 @@
 import FileUploader from "@/components/FileUploader";
 import Landing from "@/components/landing";
 import { useState } from "react";
+
+const getBasePath = () => {
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname;
+    if (path.startsWith('/document_processing')) return '/document_processing';
+  }
+  return '';
+};
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,10 +34,15 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", files[0]);
       formData.append("model", selectedModel);
-      const response = await fetch("/api/v1/parse", {
+      const basePath = getBasePath();
+      const response = await fetch(`${basePath}/api/v1/parse`, {
         method: "POST",
         body: formData,
       });
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Server error. Check if database and Ollama are running.`);
+      }
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Failed to process PDF");
@@ -50,12 +63,19 @@ export default function Home() {
     setSearchResults([]);
     setSelectedMetadata(null);
     try {
-      const response = await fetch(`/api/v1/search?query=${encodeURIComponent(searchQuery)}&model=${selectedModel}`);
+      const basePath = getBasePath();
+      const response = await fetch(`${basePath}/api/v1/search?query=${encodeURIComponent(searchQuery)}&model=${selectedModel}`);
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(`Server returned non-JSON response. Check if database and Ollama are running.`);
+      }
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Failed to search documents");
       }
       const data = await response.json();
+      console.log('Search API response:', data);
       setSearchResults(data.results || []);
     } catch (err) {
       setError(err.message || "An error occurred while searching");
@@ -105,6 +125,11 @@ export default function Home() {
                 <FiSearch /> Search
               </Button>
             </form>
+            {error && <div className="text-red-600 mb-4 font-medium">{error}</div>}
+            {isProcessing && <div className="text-blue-600 mb-4 animate-pulse">Searching...</div>}
+            {!isProcessing && searchResults.length === 0 && searchQuery && (
+              <div className="text-gray-500 mb-4">No results found. Try a different query.</div>
+            )}
             {searchResults.length > 0 && (
               <ScrollArea className="h-[500px] w-full rounded border bg-muted p-2">
                 <div className="flex flex-col gap-4">
