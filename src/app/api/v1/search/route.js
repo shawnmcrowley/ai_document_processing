@@ -106,7 +106,7 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const query = searchParams.get("query");
-    const limit = parseInt(searchParams.get("limit") || "5", 10);
+    const limit = parseInt(searchParams.get("limit") || "10", 10);
     
     if (!query) {
       return NextResponse.json({ error: "Missing query parameter" }, { status: 400 });
@@ -115,18 +115,16 @@ export async function GET(req) {
     const queryEmbedding = await getQueryEmbedding(query);
     const formattedEmbedding = `[${queryEmbedding.join(',')}]`;
 
-    const { rows } = await db.query(SIMILARITY_SQL, [formattedEmbedding, limit * 2]);
+    const { rows } = await db.query(SIMILARITY_SQL, [formattedEmbedding, limit * 5]);
 
     const results = rows
       .map(row => {
         const distance = Number(row.distance);
-        // Negative inner product: lower is better, typically ranges from -1 to 0
-        // Convert to 0-1 scale where 1 is most similar
-        const similarity = (1 + distance) / 2; // Maps [-1, 0] to [0, 0.5]
-        const relevance = Math.max(0, Math.min(1, similarity * 2)); // Scale to [0, 1]
+        const similarity = 1 / (1 + Math.abs(distance));
+        const relevance = Math.max(0, Math.min(1, similarity));
         const content = String(row.content || '');
-        // Split into paragraphs (sentences grouped by topic)
-        const sentences = content.split(/(?<=[.!?])\s+(?=[A-Z])/);
+        
+        const sentences = content.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.trim().length > 20);
         const paragraphs = [];
         let currentPara = [];
         
@@ -140,7 +138,7 @@ export async function GET(req) {
         
         return {
           content,
-          paragraphs: paragraphs.filter(p => p.trim().length > 0),
+          paragraphs: paragraphs.filter(p => p.trim().length > 30),
           relevance,
           distance,
           metadata: {
@@ -150,7 +148,7 @@ export async function GET(req) {
           }
         };
       })
-      .filter(r => r.relevance > 0.1)
+      .filter(r => r.relevance > 0.2)
       .sort((a, b) => b.relevance - a.relevance)
       .slice(0, limit);
 

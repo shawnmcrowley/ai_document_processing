@@ -155,6 +155,9 @@ function l2Normalize(vector) {
  *         description: Internal server error
  */
 
+export const maxDuration = 600;
+export const dynamic = 'force-dynamic';
+
 export async function POST(req) {
     const timer = new Timer('pdf-processing');
     try {
@@ -179,7 +182,7 @@ export async function POST(req) {
         }
 
         // Generate and validate chunks
-        const chunks = chunkText(cleanedText, 5000)
+        const chunks = chunkText(cleanedText)
             .filter(chunk => chunk?.trim().length >= 50)
             .map(chunk => chunk.trim());
         
@@ -189,58 +192,74 @@ export async function POST(req) {
         timer.checkpoint('text chunked');
         logDebug('chunks-created', { count: chunks.length });
         
-        // Generate embeddings in parallel
-        const embeddings = await Promise.all(
-            chunks.map(async (chunk) => {
+        // Generate embeddings sequentially to avoid overwhelming Ollama
+        const embeddings = [];
+        const maxTokens = 512; // Snowflake Arctic Embed limit
+        const maxChars = maxTokens * 4; // ~4 chars per token
+        
+        for (let i = 0; i < chunks.length; i++) {
+            if (i % 10 === 0) {
+                console.log(`Processing embedding ${i + 1}/${chunks.length}`);
+            }
+            try {
+                let chunk = chunks[i];
+                // Truncate if too long
+                if (chunk.length > maxChars) {
+                    console.log(`Truncating chunk ${i} from ${chunk.length} to ${maxChars} chars`);
+                    chunk = chunk.substring(0, maxChars);
+                }
                 const result = await ollama.embeddings({
                     model: "snowflake-arctic-embed2",
                     prompt: chunk
                 });
-                return l2Normalize(result.embedding);
-            })
-        );
+                embeddings.push(l2Normalize(result.embedding));
+            } catch (embErr) {
+                console.error(`Embedding ${i} failed:`, embErr.message);
+                throw new Error(`Embedding generation failed at chunk ${i}: ${embErr.message}`);
+            }
+        }
         timer.checkpoint('embeddings generated');
         logDebug('embeddings-created', { count: embeddings.length });
 
-        // Helper functions
+        // Helper function
         const toPgVector = (arr) => '[' + arr.join(',') + ']';
-        
-        const meanVector = (vectors) => {
-            const dim = vectors[0].length;
-            const mean = new Array(dim).fill(0);
-            vectors.forEach(v => v.forEach((val, i) => mean[i] += val));
-            return l2Normalize(mean.map(val => val / vectors.length));
-        };
 
-        // Prepare document data - ensure all values are proper types
+        // Prepare document data - skip document-level embedding for faster processing
         const fileName = String(file.name || "uploaded.pdf");
         const docContent = String(cleanedText);
-        const docEmbedding = meanVector(embeddings);
         const metadataJson = JSON.stringify({ ...data.metadata, fileName });
         
         const docInsert = await db.query(
-            `INSERT INTO documents (filename, content, metadata, embedding) VALUES ($1, $2, $3, $4) RETURNING id`,
-            [fileName, docContent, metadataJson, toPgVector(docEmbedding)]
+            `INSERT INTO documents (filename, content, metadata) VALUES ($1, $2, $3) RETURNING id`,
+            [fileName, docContent, metadataJson]
         );
         const documentId = docInsert.rows[0].id;
 
-        // Batch insert chunks
-        const dbBatchSize = 100;
-        for (let i = 0; i < chunks.length; i += dbBatchSize) {
-            const batch = chunks.slice(i, i + dbBatchSize);
-            const values = batch.map((_, idx) => 
-                `($1, $${idx * 3 + 2}, $${idx * 3 + 3}, $${idx * 3 + 4})`
-            ).join(',');
-            
-            const params = [documentId];
-            batch.forEach((chunk, idx) => {
-                params.push(i + idx, String(chunk), toPgVector(embeddings[i + idx]));
-            });
-            
-            await db.query(
-                `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ${values}`,
-                params
-            );
+        // Batch insert chunks with transaction
+        const dbBatchSize = 50;
+        await db.query('BEGIN');
+        try {
+            for (let i = 0; i < chunks.length; i += dbBatchSize) {
+                const batch = chunks.slice(i, i + dbBatchSize);
+                console.log(`Inserting DB batch ${Math.floor(i/dbBatchSize) + 1}/${Math.ceil(chunks.length/dbBatchSize)}`);
+                const values = batch.map((_, idx) => 
+                    `($1, $${idx * 3 + 2}, $${idx * 3 + 3}, $${idx * 3 + 4})`
+                ).join(',');
+                
+                const params = [documentId];
+                batch.forEach((chunk, idx) => {
+                    params.push(i + idx, String(chunk), toPgVector(embeddings[i + idx]));
+                });
+                
+                await db.query(
+                    `INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES ${values}`,
+                    params
+                );
+            }
+            await db.query('COMMIT');
+        } catch (dbErr) {
+            await db.query('ROLLBACK');
+            throw new Error(`Database insert failed: ${dbErr.message}`);
         }
         timer.checkpoint('database inserts complete');
         logDebug('db-insert-complete', { documentId, chunks: chunks.length });
@@ -254,6 +273,7 @@ export async function POST(req) {
         });
 
     } catch (err) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        console.error('Parse API Error:', err);
+        return NextResponse.json({ error: err.message || 'Processing failed' }, { status: 500 });
     }
 }

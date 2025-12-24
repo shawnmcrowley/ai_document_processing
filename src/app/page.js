@@ -18,17 +18,20 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { FiUpload, FiSearch, FiChevronDown, FiX } from "react-icons/fi";
 
 export default function Home() {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [searchError, setSearchError] = useState(null);
   const [results, setResults] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const [hasSearched, setHasSearched] = useState(false);
   const [selectedMetadata, setSelectedMetadata] = useState(null);
   const [selectedModel, setSelectedModel] = useState("llama3:2");
 
   const handleFilesSelected = async (files) => {
-    setIsProcessing(true);
-    setError(null);
+    setIsUploading(true);
+    setUploadError(null);
     setResults(null);
     try {
       const formData = new FormData();
@@ -50,18 +53,19 @@ export default function Home() {
       const data = await response.json();
       setResults(data);
     } catch (err) {
-      setError(err.message || "An error occurred while processing the PDF");
+      setUploadError(err.message || "An error occurred while processing the PDF");
     } finally {
-      setIsProcessing(false);
+      setIsUploading(false);
     }
   };
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    setIsProcessing(true);
-    setError(null);
+    setIsSearching(true);
+    setSearchError(null);
     setSearchResults([]);
     setSelectedMetadata(null);
+    setHasSearched(true);
     try {
       const basePath = getBasePath();
       const response = await fetch(`${basePath}/api/v1/search?query=${encodeURIComponent(searchQuery)}&model=${selectedModel}`);
@@ -78,9 +82,9 @@ export default function Home() {
       console.log('Search API response:', data);
       setSearchResults(data.results || []);
     } catch (err) {
-      setError(err.message || "An error occurred while searching");
+      setSearchError(err.message || "An error occurred while searching");
     } finally {
-      setIsProcessing(false);
+      setIsSearching(false);
     }
   };
 
@@ -94,9 +98,9 @@ export default function Home() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <FileUploader onFilesSelected={handleFilesSelected} disabled={isProcessing} />
-            {isProcessing && <div className="text-blue-600 mt-4 animate-pulse">Processing...</div>}
-            {error && <div className="text-red-600 mt-4 font-medium">{error}</div>}
+            <FileUploader onFilesSelected={handleFilesSelected} disabled={isUploading} />
+            {isUploading && <div className="text-blue-600 mt-4 animate-pulse">Processing...</div>}
+            {uploadError && <div className="text-red-600 mt-4 font-medium">{uploadError}</div>}
             {results && results.chunks && (
               <div className="mt-4 text-green-600 font-medium">
                 Document processed successfully!
@@ -117,17 +121,17 @@ export default function Home() {
                 type="text"
                 placeholder="Search documents..."
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                disabled={isProcessing}
+                onChange={e => { setSearchQuery(e.target.value); setSearchError(null); setHasSearched(false); }}
+                disabled={isSearching}
                 className="flex-1"
               />
-              <Button type="submit" disabled={isProcessing || !searchQuery.trim()} className="flex items-center gap-2">
+              <Button type="submit" disabled={isSearching || !searchQuery.trim()} className="flex items-center gap-2">
                 <FiSearch /> Search
               </Button>
             </form>
-            {error && <div className="text-red-600 mb-4 font-medium">{error}</div>}
-            {isProcessing && <div className="text-blue-600 mb-4 animate-pulse">Searching...</div>}
-            {!isProcessing && searchResults.length === 0 && searchQuery && (
+            {searchError && <div className="text-red-600 mb-4 font-medium">{searchError}</div>}
+            {isSearching && <div className="text-blue-600 mb-4 animate-pulse">Searching...</div>}
+            {!isSearching && hasSearched && searchResults.length === 0 && (
               <div className="text-gray-500 mb-4">No results found. Try a different query.</div>
             )}
             {searchResults.length > 0 && (
