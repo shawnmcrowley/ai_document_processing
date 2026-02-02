@@ -18,7 +18,7 @@ function normalizeVector(vector) {
 
 async function getQueryEmbedding(query) {
   const result = await ollama.embeddings({
-    model: "snowflake-arctic-embed2",
+    model: "mxbai-embed-large:335m",
     prompt: query,
   });
   return normalizeVector(result.embedding);

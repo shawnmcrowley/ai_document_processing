@@ -209,7 +209,7 @@ export async function POST(req) {
                     chunk = chunk.substring(0, maxChars);
                 }
                 const result = await ollama.embeddings({
-                    model: "snowflake-arctic-embed2",
+                    model: "mxbai-embed-large:335m",
                     prompt: chunk
                 });
                 embeddings.push(l2Normalize(result.embedding));
