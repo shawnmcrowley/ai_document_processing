@@ -7,7 +7,7 @@ const pool = new Pool({
   password: 'postgres',
   host: 'localhost',
   port: 5432,
-  database: 'vectordb',
+  database: 'pgvector_db',
 })
 
 // Use environment variables from .env.local
